@@ -59,15 +59,15 @@ pub fn validating_commitments<P: ECPoint + Copy + Debug>(received_msg_comm: ( &V
 	let s_ji = shares_j[0];
 	let s_ji_prime = shares_j[1];
 	let commitment_from_eval: P = g * (*s_ji) + h * (*s_ji_prime);
-	println!("comm iter with head: {:?}", commitment);
+//	println!("comm iter with head: {:?}", commitment);
 	let mut commitment_iter = commitment.iter();
 	let head= commitment_iter.next().unwrap();
-	println!("comm iter  without head: {:?}", commitment_iter);
+//	println!("comm iter  without head: {:?}", commitment_iter);
 	let commitment_from_comms = commitment_iter
 		.enumerate()
 		.fold(*head, |acc, (j,  &comm)|{
 			let exp = <P::Scalar as ECScalar>::from(&BigInt::from(index as i32).pow((j+1) as u32));
-			println!("index {}, j {}, exp: {:?}", index,j,exp.to_big_int());
+		//	println!("index {}, j {}, exp: {:?}", index,j,exp.to_big_int());
 			acc + comm * exp
 		});
 
@@ -182,7 +182,23 @@ mod test{
 		party_vec.push(party_1.clone());
 		party_vec.push(party_2.clone());
 		party_vec.push(party_3.clone());
-		let mut party_1_received = vec![];
+		let mut party_msg_received: Vec<Vec<_>> = party_vec.
+			iter().
+			enumerate().
+			map(|(party_sender_index, party_sender)| {
+				(1..l+1).
+				filter(|index_receiver| party_sender_index != index_receiver - 1).
+				map(|index_receiver|{
+					let received_msg = party_sender.phase_1_broadcast_commitment(index_receiver);
+						assert!(validating_commitments(received_msg));
+					received_msg
+				}).
+				collect::<Vec<_>>()
+			}).
+			collect::<Vec<Vec<_>>>();
+		println!("party_msg_received {:?}", party_msg_received);
+
+
 
 		let party_1_received_msg_from_2 = party_2.phase_1_broadcast_commitment(1);
 		let party_1_received_msg_from_3 = party_3.phase_1_broadcast_commitment(1);
@@ -196,11 +212,6 @@ mod test{
 		assert!(validating_commitments(party_2_received_msg_from_3));
 		assert!(validating_commitments(party_3_received_msg_from_1));
 		assert!(validating_commitments(party_3_received_msg_from_2));
-		let mut party_1_received_msg = vec![];
-		party_1_received_msg.push(party_2.phase_1_broadcast_commitment(1));
-		party_1_received_msg.push(party_2.phase_1_broadcast_commitment(2));
-
-		let party_1_received_msg_from_3 = party_3.phase_1_broadcast_commitment(1);
 
 
 
