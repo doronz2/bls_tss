@@ -1,1 +1,3 @@
-pub mod DKG;
+#![allow(non_snake_case)]
+
+pub mod dkg;
