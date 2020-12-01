@@ -1,7 +1,5 @@
-//use curv::cryptographic_primitives::pairing::*;
-//use curv::pairing_bls12_381::PAIRING;
-//use curv::elliptic::curves::bls12_381::g1;
-//use curv::elliptic::curves::bls12_381::g2;
+use curv::elliptic::curves::bls12_381::g1;
+use curv::elliptic::curves::bls12_381::g2;
 use curv::BigInt;
 //use curv::cryptographic_primitives::hashing::hash_sha256;
 //use curv::cryptographic_primitives::hashing::traits::Hash;
@@ -9,13 +7,15 @@ use curv::elliptic::curves::traits::ECPoint;
 use curv::elliptic::curves::traits::ECScalar;
 use serde::export::fmt::Debug;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss;
+use curv::cryptographic_primitives::pairing::pairing_bls12_381::PairingBls;
+use curv::cryptographic_primitives::pairing::traits::PAIRING;
 //use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
 
 
-//type GE1 = g1::GE;
-//type FE1 = g1::FE;
-//type GE2 = g2::GE;
-//type FE2 = g1::FE;
+type GE1 = g1::GE;
+type FE1 = g1::FE;
+type GE2 = g2::GE;
+type FE2 = g1::FE;
 
 
 /*
@@ -150,8 +150,32 @@ impl<P: ECPoint + Clone> Party<P> {
 		(C_ik, (&self.shares[index - 1] ,&self.shares_prime[index - 1]),index)
 	}
 
-	pub fn phase_2_ExposingCoeffs(){
+	pub fn phase_2_ExposingCoeffs(&self) -> (&Vec<P>,GE2){
+		let g2: GE2 = GE2::generator();
+		//converting a_i0 from P to T (i.e., from group G1 to group G2)
+		let a_i0: &FE2 = &<FE2 as ECScalar>::from(&self.a_i0.to_big_int());
+		let B_i0 = g2.scalar_mul(&a_i0.get_element());
+		(&self.commitments_a, B_i0)
+	}
 
+	pub fn phase_2_verify_validity_of_i_commitment(&self, commitment_i: &Vec<GE1>, s_ij: &FE1, B_i0: GE2) -> bool{
+		let mut commitment_iter = commitment_i.iter();
+		let head = commitment_iter.next().unwrap();
+		let A_ik_prod = commitment_iter
+			.enumerate()
+			.fold(*head, |acc, (j,  &A_ik)|{
+				let exp =
+					<FE1 as ECScalar>::from(&BigInt::from(self.index as i32).pow((j+1) as u32));
+				//	println!("index {}, j {}, exp: {:?}", index,j,exp.to_big_int());
+				acc + A_ik * exp
+			});
+		let g1 = &GE1::generator();
+		let g2 = &GE2::generator();
+		let check_A_ik_commitments =  A_ik_prod == g1.scalar_mul(&s_ij.get_element());
+		let A_i0 = commitment_i[0];
+		let check_ai0_secret =
+			PairingBls::compute_pairing(&A_i0,&g2) == PairingBls::compute_pairing(&g1,&B_i0);
+		check_A_ik_commitments && check_ai0_secret
 	}
 }
 
@@ -180,6 +204,7 @@ mod test{
 	use super::*;
 	type GE1 = curv::elliptic::curves::bls12_381::g1::GE;
 	type FE1 = curv::elliptic::curves::bls12_381::g1::FE;
+	type GE2 = curv::elliptic::curves::bls12_381::g2::GE;
 
 
 	#[test]
@@ -193,7 +218,7 @@ mod test{
 		party_vec.push(party_1.clone());
 		party_vec.push(party_2.clone());
 		party_vec.push(party_3.clone());
-		let mut party_msg_received_vec: Vec<Vec<_>> = party_vec.
+		let party_msg_received_vec: Vec<Vec<_>> = party_vec.
 			iter().
 			enumerate().
 			map(|(party_sender_index, party_sender)| {
@@ -222,12 +247,10 @@ mod test{
 			.collect();
 
 		println!("party_keys_vec {:?}", party_keys_vec);
+
+		//let phase_2_msg_vec =
 	}
 
-	#[test]
-	pub fn test_extracting_phase(){
-
-	}
 
 }
 
