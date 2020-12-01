@@ -51,13 +51,13 @@ pub struct ReceivedCommitment{
 
 }
 */
-pub fn validating_commitments<P: ECPoint + Copy + Debug>(received_msg_comm: ( &Vec<P>,  [&P::Scalar; 2], usize)) -> bool {
+pub fn validating_commitments<P: ECPoint + Copy + Debug>(received_msg_comm: ( Vec<P>, (&P::Scalar,&P::Scalar), usize)) -> bool {
 	let (commitment, shares_j, index) = received_msg_comm;
 	let g = P::generator();
 	let h = P::base_point2();
 	//computing g^s_ij*h^s'_ij
-	let s_ji = shares_j[0];
-	let s_ji_prime = shares_j[1];
+	let s_ji = shares_j.0;
+	let s_ji_prime = shares_j.1;
 	let commitment_from_eval: P = g * (*s_ji) + h * (*s_ji_prime);
 //	println!("comm iter with head: {:?}", commitment);
 	let mut commitment_iter = commitment.iter();
@@ -75,12 +75,14 @@ pub fn validating_commitments<P: ECPoint + Copy + Debug>(received_msg_comm: ( &V
 	commitment_from_eval == commitment_from_comms
 }
 
+
+
 pub fn invalid_commitments_vec<P:ECPoint + Copy + Debug>
 (
-	l: u32, commitment: &Vec<Vec<P>>, shares_vec: Vec<[&P::Scalar; 2]>
+	l: u32, commitment: &Vec<Vec<P>>, shares_vec: Vec<(&P::Scalar, &P::Scalar)>
 )-> Vec<bool> {
 	(0..l as usize).
-		map(|i| !validating_commitments((&commitment[i], shares_vec[i], i)))
+		map(|i| !validating_commitments((commitment[i].clone(), shares_vec[i], i)))
 		.collect()
 }
 
@@ -104,7 +106,8 @@ pub struct Party<P: ECPoint>{
 	qual_parties: Vec<usize>,
 	shares: Vec<P::Scalar>,
 	shares_prime: Vec<P::Scalar>,
-	commitments: Vec<P>,
+	commitments_a: Vec<P>,
+	commitments_b: Vec<P>,
 }
 
 
@@ -112,31 +115,39 @@ impl<P: ECPoint + Clone> Party<P> {
 
 	pub fn phase_1_commit( index: usize,  l: usize, t: usize) -> Self where <P as ECPoint>::Scalar: Clone {
 		let a_i0: P::Scalar = P::Scalar::new_random();
+
 		let G = P::generator();
-		let H = P::base_point2();
 		let (vss_a, shares) =
-			feldman_vss::VerifiableSS::share(t, l, &a_i0, G);
+			feldman_vss::VerifiableSS::share_given_generator(t, l, &a_i0, G);
 		let commitments_a: Vec<P> =vss_a.commitments;
+
+		let H = P::base_point2();
 		let (vss_b, shares_prime) =
-			feldman_vss::VerifiableSS::<P>::share(t, l, &P::Scalar::new_random(), H);
+			feldman_vss::VerifiableSS::<P>::share_given_generator(t, l, &P::Scalar::new_random(), H);
 		let commitments_b: Vec<P> = vss_b.commitments;
-		let commitment_c = commitments_a.iter().zip(commitments_b.iter()).
-			map(|(&comm_a_i, &comm_b_i)| comm_a_i + comm_b_i).collect();
+
+		//let commitment_c = commitments_a.iter().zip(commitments_b.iter()).
+		//	map(|(&comm_a_i, &comm_b_i)| comm_a_i + comm_b_i).collect();
 		Self {
 			a_i0,
 			index,
 			qual_parties: vec![],
 			shares,
 			shares_prime,
-			commitments: commitment_c
+			commitments_a,
+			commitments_b,
 		}
 		//(commitment_c,shares,shares_prime)
 	}
 
 
-	pub fn phase_1_broadcast_commitment(&self, index: usize)-> (&Vec<P>,[&P::Scalar;2], usize){
+	pub fn phase_1_broadcast_commitment(&self, index: usize)-> (Vec<P>,(&P::Scalar,&P::Scalar), usize){
 		assert_ne!(self.index,index);
-		(&self.commitments, [&self.shares[index - 1],&self.shares_prime[index - 1]],index)
+		let C_ik = self.commitments_a.iter()
+			.zip(self.commitments_b.iter())
+			.map(|(&comm_a,&comm_b)| comm_a + comm_b)
+			.collect();
+		(C_ik, (&self.shares[index - 1] ,&self.shares_prime[index - 1]),index)
 	}
 
 	pub fn phase_2_ExposingCoeffs(){
@@ -144,7 +155,7 @@ impl<P: ECPoint + Clone> Party<P> {
 	}
 }
 
-
+#[derive(Debug)]
 pub struct KeyPair<P: ECPoint>{
 	sk: P::Scalar,
 	vk: P,
@@ -172,7 +183,7 @@ mod test{
 
 
 	#[test]
-	fn test_phase_1_all_honest(){
+	fn test_generating_phase(){
 		let l = 3;
 		let t = 2;
 		let mut party_vec = vec![];
@@ -182,7 +193,7 @@ mod test{
 		party_vec.push(party_1.clone());
 		party_vec.push(party_2.clone());
 		party_vec.push(party_3.clone());
-		let mut party_msg_received: Vec<Vec<_>> = party_vec.
+		let mut party_msg_received_vec: Vec<Vec<_>> = party_vec.
 			iter().
 			enumerate().
 			map(|(party_sender_index, party_sender)| {
@@ -190,36 +201,33 @@ mod test{
 				filter(|index_receiver| party_sender_index != index_receiver - 1).
 				map(|index_receiver|{
 					let received_msg = party_sender.phase_1_broadcast_commitment(index_receiver);
-						assert!(validating_commitments(received_msg));
+						assert!(validating_commitments(received_msg.clone()));
 					received_msg
 				}).
 				collect::<Vec<_>>()
 			}).
 			collect::<Vec<Vec<_>>>();
-		println!("party_msg_received {:?}", party_msg_received);
+		println!("party_msg_received {:?}", party_msg_received_vec);
 
+		let party_keys_vec: Vec<KeyPair<GE1>> = party_msg_received_vec.iter().
+			map(| party_msg_received| {
+				let (sk_vec,rk_vec) = party_msg_received.iter().map(|msg_tuple| {
+					let (sk, rk) = msg_tuple.1;
+					(sk, rk)
+				})
+					.unzip();
+				let party_keys = KeyPair::<GE1>::combine_key_shares_from_qualified(sk_vec,rk_vec);
+				party_keys
+				})
+			.collect();
 
-
-		let party_1_received_msg_from_2 = party_2.phase_1_broadcast_commitment(1);
-		let party_1_received_msg_from_3 = party_3.phase_1_broadcast_commitment(1);
-		let party_2_received_msg_from_1 = party_1.phase_1_broadcast_commitment(2);
-		let party_2_received_msg_from_3 = party_3.phase_1_broadcast_commitment(2);
-		let party_3_received_msg_from_1 = party_1.phase_1_broadcast_commitment(3);
-		let party_3_received_msg_from_2 = party_2.phase_1_broadcast_commitment(3);
-		assert!(validating_commitments(party_1_received_msg_from_2));
-		assert!(validating_commitments(party_1_received_msg_from_3));
-		assert!(validating_commitments(party_2_received_msg_from_1));
-		assert!(validating_commitments(party_2_received_msg_from_3));
-		assert!(validating_commitments(party_3_received_msg_from_1));
-		assert!(validating_commitments(party_3_received_msg_from_2));
-
-
-
-
-
-
+		println!("party_keys_vec {:?}", party_keys_vec);
 	}
 
+	#[test]
+	pub fn test_extracting_phase(){
+
+	}
 
 }
 
