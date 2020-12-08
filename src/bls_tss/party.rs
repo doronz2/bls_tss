@@ -1,16 +1,19 @@
 use curv::elliptic::curves::bls12_381::g1;
 use curv::elliptic::curves::bls12_381::g2;
 use curv::BigInt;
-//use curv::cryptographic_primitives::hashing::hash_sha256;
-//use curv::cryptographic_primitives::hashing::traits::Hash;
+use curv::cryptographic_primitives::hashing::hash_sha256;
+use curv::cryptographic_primitives::hashing::traits::Hash;
 use curv::elliptic::curves::traits::ECPoint;
 use curv::elliptic::curves::traits::ECScalar;
 use serde::export::fmt::Debug;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss;
 use curv::cryptographic_primitives::pairing::pairing_bls12_381::PairingBls;
 use curv::cryptographic_primitives::pairing::traits::PAIRING;
+use curv::cryptographic_primitives::proofs::sigma_ec_ddh;
 //use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
 use crate::bls_tss::Error;
+use zeroize::{Zeroize, DefaultIsZeroes};
+
 
 type GE1 = g1::GE;
 type FE1 = g1::FE;
@@ -54,20 +57,19 @@ pub struct ReceivedCommitment{
 
 #[derive(Clone,Debug,Serialize)]
 pub struct Party<P: ECPoint>{
-	index: usize,
+	pub index: usize,
 	a_i0: P::Scalar,
 	qual_parties: Vec<usize>,
 	shares: Vec<P::Scalar>,
 	shares_prime: Vec<P::Scalar>,
-	commitments_a: Vec<P>,
+	pub commitments_a: Vec<P>,
 	commitments_b: Vec<P>,
 }
 
 
 #[derive(Clone,Debug,Serialize)]
 pub struct VerificationKeys<P: ECPoint>{
-	v: Vec<P>,
-	vk: Vec<P>,
+	pub vk: Vec<P>,
 }
 
 
@@ -76,28 +78,44 @@ pub struct KeyGenMessagePhase1<P: ECPoint>{
 	C_ik: Vec<P>,
 	share: P::Scalar,
 	share_prime: P::Scalar,
-	index: usize
+	pub index: usize
 }
 
 
 
 #[derive(Clone,Debug,Serialize)]
 pub struct KeyGenBroadcastMessagePhase2<'a, P:ECPoint>{
-	A_ik_vec: &'a Vec<P>,
+	pub A_ik_vec: &'a Vec<P>,
 	B_i0: GE2
 }
 
 #[derive(Clone,Debug,Serialize)]
-pub struct KeyPair<P: ECPoint>{
+pub struct Keys<P: ECPoint>{
 	sk: P::Scalar,
 	vk: P,
-	rk: P::Scalar
+	rk: P::Scalar,
+	party_index: usize
 }
 
 #[derive(Clone,Debug)]
 pub struct PartyKeys<P:ECPoint> {
-	keyPair: KeyPair<P>,
-	sk_ij : Vec<P::Scalar>,
+	pub Keys: Keys<P>,
+	pub sk_ij : Vec<P::Scalar>,
+}
+
+//(self.party_index, sig_i, proof)
+
+pub struct PartialSignatureProverOutput<P:ECPoint>{
+	pub party_index: usize,
+	sig_i : P,
+	proof: sigma_ec_ddh::ECDDHProof<P>
+}
+
+impl <P:ECPoint>KeyGenMessagePhase1<P>{
+	pub fn output_shares(&self)->(P::Scalar,P::Scalar){
+		(self.share, self.share_prime)
+	}
+
 }
 
 pub fn phase_1_validate_commitments<P: ECPoint + Copy + Debug>(received_msg_comm: KeyGenMessagePhase1<P>) -> Result<(), Error> {
@@ -180,16 +198,7 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 	}
 
 
-	pub fn phase_2_broadcast_commitment(&self) -> KeyGenBroadcastMessagePhase2<P> {
-		let g2: GE2 = GE2::generator();
-		//converting a_i0 from P to T (i.e., from group G1 to group G2)
-		let a_i0: &FE2 = &<FE2 as ECScalar>::from(&self.a_i0.to_big_int());
-		let B_i0 = g2.scalar_mul(&a_i0.get_element());
-		KeyGenBroadcastMessagePhase2{
-			A_ik_vec: &self.commitments_a,
-			B_i0
-		}
-	}
+
 
 
 	pub fn phase_1_broadcast_commitment(&self, index: usize)-> KeyGenMessagePhase1<P>{
@@ -206,6 +215,19 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 			index
 		}
 	}
+
+
+	pub fn phase_2_broadcast_commitment(&self) -> KeyGenBroadcastMessagePhase2<P> {
+		let g2: GE2 = GE2::generator();
+		//converting a_i0 from P to T (i.e., from group G1 to group G2)
+		let a_i0: &FE2 = &<FE2 as ECScalar>::from(&self.a_i0.to_big_int());
+		let B_i0 = g2.scalar_mul(&a_i0.get_element());
+		KeyGenBroadcastMessagePhase2{
+			A_ik_vec: &self.commitments_a,
+			B_i0
+		}
+	}
+
 
 	pub fn validate_i_commitment_phase_2(&self,  msg_2: KeyGenBroadcastMessagePhase2<GE1>, s_ij: FE1) -> Result<(),Error>{
 		let commitment_i = msg_2.A_ik_vec;
@@ -235,155 +257,158 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 		}
 
 	}
+
+	pub fn compute_public_key(B_i0_vec: Vec<GE2>) -> GE2{
+		let mut B_i0_iter = B_i0_vec.iter();
+		let head = B_i0_iter.next().unwrap();
+		B_i0_iter.fold(*head, |acc , B_i0| acc + B_i0)
+	}
 }
 
 
 
-impl<P:ECPoint + Debug> KeyPair<P> {
-	pub fn combine_key_shares_from_qualified(sk_qualified: &Vec<P::Scalar>, sk_prime_qualified : Vec<P::Scalar>) -> Self{
-		/*
-		for i in (0..3){
-			println!("sk col {:?}",P::generator() * sk_qualified[i]);
-		}
+/*
+pub fn hash_to_curve<P: ECPoint>(message: &BigInt) -> P
+	where P: ECPoint + Clone + Debug
+{
+	let hashed = hash_sha256::HSha256::create_hash(&[message]);
+	let hashed_scalar = <P::Scalar as ECScalar>::from(&hashed);
+	P::generator().scalar_mul(&hashed_scalar.get_element())
+}
+
+impl<P: ECPoint > Party<P>{
+	pub fn partial_signature(message: [u8;4], sk_i: &FE1) {
+		let message_bn = &BigInt::from(message);
+		let hashed_msg: P = hash_to_curve(&message_bn);
+		let partial_sig = hashed_msg.scalar_mul(&sk_i.get_element());
+
+	}
+}
 */
+
+
+
+
+impl<P:ECPoint + Debug> Keys<P> {
+	pub fn createKeys(sk: P::Scalar, vk: P, rk: P::Scalar, party_index: usize) -> Self {
+		Self {
+			sk,
+			vk,
+			rk,
+			party_index
+		}
+	}
+
+	pub fn combine_key_shares_from_qualified(sk_qualified: &Vec<P::Scalar>, sk_prime_qualified: Vec<P::Scalar>, party_index: usize) -> Keys<P> {
 		let sk = sk_qualified.into_iter().
 			fold(P::Scalar::zero(), |acc, &e| acc + e);
 		let vk = P::generator() * sk;
 		let rk = sk_prime_qualified.iter().
 			fold(P::Scalar::zero(), |acc, &e| acc + e);
-		Self{
-			sk, vk, rk
+		Keys::createKeys(sk, vk, rk, party_index)
+	}
+}
+
+pub fn hash_to_curve_with_auxillary<P:ECPoint>(message: &BigInt, auxillary: &BigInt) -> P
+	where P: ECPoint + Clone
+{
+	let hashed = hash_sha256::HSha256::create_hash(&[message, auxillary]);
+	let hashed_scalar = <P::Scalar as ECScalar>::from(&hashed);
+	P::generator().scalar_mul(&hashed_scalar.get_element())
+}
+
+pub fn hash_to_curve<P:ECPoint>(message: &BigInt) -> P
+	where P: ECPoint + Clone
+{
+	let hashed = hash_sha256::HSha256::create_hash(&[message]);
+	let hashed_scalar = <P::Scalar as ECScalar>::from(&hashed);
+	P::generator().scalar_mul(&hashed_scalar.get_element())
+}
+
+
+impl<P> Keys<P> where
+P:ECPoint,
+P::Scalar: Zeroize + Clone
+{
+
+	pub fn get_vk(&self) ->P{
+		self.vk
+	}
+
+	pub fn generate_random_key()-> Self{
+		let sk = P::Scalar::new_random();
+		let vk = P::generator() * sk;
+		let rk = P::Scalar::new_random();
+		Keys{
+			sk, vk, rk, party_index: 0
+		}
+	}
+
+	pub fn partial_signature(&self, message: &[u8]) -> PartialSignatureProverOutput<P>
+	{
+		let message_bn = &BigInt::from(message);
+		let hashed_msg: P = hash_to_curve_with_auxillary(&message_bn, &BigInt::from(3));
+		//let hashed_msg: P = self::hash_to_curve(&message_bn, &self.vk.bytes_compressed_to_big_int());
+		let x = &self.sk;
+		let sig_i = hashed_msg.scalar_mul(&x.get_element());
+		let w = sigma_ec_ddh::ECDDHWitness { x: ECScalar::from(&x.to_big_int()) };
+		let g = P::generator();
+		let vk = self.vk;
+		let delta = sigma_ec_ddh::ECDDHStatement {
+			g1: g,
+			h1: vk,
+			g2: hashed_msg,
+			h2: sig_i
+		};
+		let proof = sigma_ec_ddh::ECDDHProof::prove(&w, &delta);
+		assert!(proof.verify(&delta).is_ok());
+
+		PartialSignatureProverOutput {
+			party_index: self.party_index,
+			sig_i,
+			proof
 		}
 	}
 }
+	pub fn verify_partial_sig<P:ECPoint> (
+		message: &[u8], vk: P, prover_output: PartialSignatureProverOutput<P>)
+		-> Result<(),Error>
+		where
+			P:ECPoint,
+			P::Scalar: Zeroize + Clone
+	{
+			let message_bn = &BigInt::from(message);
+			let hashed_msg: P = hash_to_curve_with_auxillary(&message_bn, &BigInt::from(3));
+			let g = P::generator();
+			let delta = sigma_ec_ddh::ECDDHStatement {
+				g1: g,
+				h1: vk,
+				g2: hashed_msg,
+				h2: prover_output.sig_i
+			};
+		let valid = prover_output.proof.verify(&delta);
+			if valid.is_ok(){
+				Ok(())
+			}
+			else{
+				Err(Error::InvalidPartialSig)
+			}
+		}
 
-#[cfg(test)]
-mod test{
-	use super::*;
-	use std::any::Any;
-
-	type GE1 = curv::elliptic::curves::bls12_381::g1::GE;
-	type FE1 = curv::elliptic::curves::bls12_381::g1::FE;
-	type GE2 = curv::elliptic::curves::bls12_381::g2::GE;
-
-
-	#[test]
-	fn test_key_gen(){
-		let l = 3;
-		let t = 2;
-		let mut party_vec = vec![];
-		let party_0 = Party::<GE1>::phase_1_commit(0,l,t);
-		let party_1 = Party::<GE1>::phase_1_commit(1,l,t);
-		let party_2 = Party::<GE1>::phase_1_commit(2,l,t);
-	//	let party_4 = Party::<GE1>::phase_1_commit(4,l,t);
-	//	let party_5 = Party::<GE1>::phase_1_commit(5,l,t);
-
-		party_vec.push(party_0.clone());
-		party_vec.push(party_1.clone());
-		party_vec.push(party_2.clone());
-	//	party_vec.push(party_4.clone());
-	//	party_vec.push(party_5.clone());
-
-
-		//return a vector of vectors of received messages for each party
-		let msg_received_vec_phase_1: Vec<Vec<_>> =
-				(0..l).
-					//filter(|index_receiver| party_sender_index != index_receiver).
-				map(|index_receiver|{
-					party_vec.
-						iter().
-						map(| party_sender| {
-					let received_msg = party_sender.phase_1_broadcast_commitment(index_receiver);
-					let valid = phase_1_validate_commitments(received_msg.clone()).is_ok();
-						assert!(valid);
-						if valid {
-							Ok(received_msg)// receive messages sk and sk'
-						}
-					else{
-							Err(Error::InvalidSS_phase1)
-					}
-				}).
-				collect::<Vec<_>>()
-			}).
-			collect::<Vec<Vec<_>>>();
-		//println!("party_msg_received {:?}", msg_received_vec_phase_1[0].len());
-
-
-
-
-
-		let party_keys_vec_received: Vec<PartyKeys<GE1>> = msg_received_vec_phase_1.iter().
-			map(| party_msg_received| {
-				let (sk_vec,rk_vec)= party_msg_received.iter().
-					filter(|msg_1| msg_1.is_ok()).//filter out the non valid commitiments
-					map(|msg_1| {
-					let msg = msg_1.clone().expect("not valid commitment - did not pass eq 4");
-
-						(msg.share, msg.share_prime)
-				})
-					.unzip();
-				//println!(" --------------- sk_vec ----- {:?}",sk_vec::<Vec<FE1>>.len());
-				let party_key_pairs = KeyPair::<GE1>::combine_key_shares_from_qualified(&sk_vec,rk_vec);
-				//println!("sk_vec {:?}",sk_vec.clone());
-				PartyKeys{
-					keyPair: party_key_pairs,
-					sk_ij: sk_vec
-					}
-				})
-			.collect();
-
-
-
-
-//////extraction phase/////////////////
-	//constructing the vector v from the A_ik elements
-
-		let msg_received_vec_phase_2: Vec<Vec<_>> = party_vec.
-			iter().
-			enumerate().
-			map(|(party_sender_index, party_sender)| {
-				(0..l).
-					//filter(|index_receiver| party_sender_index != index_receiver).
-					map(|index_receiver|{
-						let received_msg = party_sender.phase_2_broadcast_commitment();
-						let s_ij = party_keys_vec_received[index_receiver].sk_ij[party_sender_index];
-						let valid = party_vec[index_receiver].validate_i_commitment_phase_2(received_msg.clone(),s_ij).is_ok();
-						assert!(valid);
-						if valid {
-							Ok(received_msg)// receive messages sk and sk'
-						}
-						else{
-							Err(Error::InvalidSS_phase1)
-						}
-					}).
-					collect::<Vec<_>>()
-			}).
-			collect::<Vec<Vec<_>>>();
-
-		let v_vec: Vec<GE1> = (0..t+1)
-			.map(|i| {
-				let mut party_vec_iter = party_vec.iter();
-				let head = party_vec_iter.next().unwrap();
-				party_vec_iter
-					.fold(head.commitments_a[i], |acc,comm|
-						acc + comm.phase_2_broadcast_commitment().A_ik_vec[i])
-			})
-			.collect();
-		let vk: Vec<GE1> = party_vec
+pub fn verify_partial_sig_vec<P:ECPoint>(
+	message: &[u8], vk_vec: Vec<P>, prover_output_vec: Vec<PartialSignatureProverOutput<P>>)
+	-> Vec<Result<(),Error>>
+	where
+		P:ECPoint ,
+		P::Scalar: Zeroize + Clone
+	{
+		let g = P::generator();
+		let valid_vec = prover_output_vec
 			.iter()
-			.map(|party| {
-				let mut v_vec_iter = v_vec.iter();
-				let head = v_vec_iter.next().unwrap();
-				v_vec_iter.enumerate()
-					.fold(*head, |acc, (j,  &vk_base)|{
-						let exp =
-							<FE1 as ECScalar>::from(&BigInt::from( (party.index + 1) as i32).pow(	(j+1) as u32));
-						//	println!("index {}, j {}, exp: {:?}", index,j,exp.to_big_int());
-						acc + vk_base * exp
-					})
+			.map(|prover_output| {
+				let party_index = prover_output.clone().party_index;
+					verify_partial_sig(message,vk_vec.get(party_index), prover_output.clone())
 			}).collect();
-		assert_eq!(vk[0],party_keys_vec_received[0].keyPair.vk)
+		valid_vec
 	}
-}
-
 

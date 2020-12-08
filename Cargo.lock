@@ -89,6 +89,7 @@ dependencies = [
  "curv",
  "serde",
  "serde_derive",
+ "zeroize 0.10.1",
 ]
 
 [[package]]
