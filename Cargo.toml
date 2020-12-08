@@ -1,5 +1,5 @@
 [package]
-name = "BLS"
+name = "bls"
 version = "0.1.0"
 authors = ["doronz <doronz@kzen.com>"]
 edition = "2018"
