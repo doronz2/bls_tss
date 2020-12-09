@@ -13,7 +13,7 @@ serde_derive = "1.0"
 #curv = { git = "https://github.com/KZen-networks" , tag = "v0.3.4"}
 curv = { path = "/Users/doronz/zengo_libs/curv" }
 zeroize = "0.10"
-
+rand = "0.7.3"
 
 [lib]
 crate-type = ["lib"]

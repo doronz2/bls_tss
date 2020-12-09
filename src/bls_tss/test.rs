@@ -17,7 +17,7 @@ mod test{
     //use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
     use crate::bls_tss::Error;
     use zeroize::Zeroize;
-
+    use rand::Rng;
     use crate::bls_tss::party::*;
     use crate::bls_tss::*;
     use std::any::Any;
@@ -149,10 +149,41 @@ mod test{
     #[test]
     fn test_partial_sig() {
         let message: &[u8; 4] = &[124, 12, 251, 82];
-        let party_keys = Keys::<GE1>::generate_random_key();
-        let prover_output = party_keys.partial_signature(message);
+        let party_keys = Keys::<GE1>::generate_random_key(0);
+        let prover_output = party_keys.partial_eval(message);
         let valid = verify_partial_sig(message, party_keys.get_vk(), prover_output).is_ok();
         assert!(valid);
+    }
+
+    #[test]
+    fn test_vector_sig(){
+        let message: &[u8; 4] = &[124, 12, 251, 82];
+        let G = GE1::generator();
+
+        let mut key_vec: Vec<Keys<GE1>> = Vec::new();
+        for i in 0..20{
+            key_vec.push(Keys::<GE1>::generate_random_key(i));
+        }
+        println!("key_vec {:#?}",key_vec);
+        let mut rng = rand::thread_rng();
+
+        let provers_output_vec: Vec<PartialSignatureProverOutput<GE1>> = key_vec
+            .iter()
+            .map(|party_keys| {
+                let b = rng.gen_range(0,2);
+                println!("b={}",b);
+                if b >= 0 {
+                    party_keys.partial_eval(message)
+                }
+                else{
+                    party_keys.partial_eval_non_valid(message)
+                }
+            })
+            .collect();
+
+        let vk_vec = key_vec.iter().map(|key| key.get_vk()).collect();
+        let valid_signers_index = valid_signers(message,vk_vec,provers_output_vec);
+        println!("valid signers indices {:?}",valid_signers_index);
     }
 
 

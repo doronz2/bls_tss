@@ -346,21 +346,23 @@ impl<P> Keys<P> where
 P:ECPoint,
 P::Scalar: Zeroize + Clone
 {
-
-	pub fn get_vk(&self) ->P{
+	pub fn get_vk(&self) -> P {
 		self.vk
 	}
 
-	pub fn generate_random_key()-> Self{
+	pub fn generate_random_key(index: usize) -> Self {
 		let sk = P::Scalar::new_random();
 		let vk = P::generator() * sk;
 		let rk = P::Scalar::new_random();
-		Keys{
-			sk, vk, rk, party_index: 0
+		Keys {
+			sk,
+			vk,
+			rk,
+			party_index: 0
 		}
 	}
 
-	pub fn partial_signature(&self, message: &[u8]) -> PartialSignatureProverOutput<P>
+	pub fn partial_eval(&self, message: &[u8]) -> PartialSignatureProverOutput<P>
 	{
 		let message_bn = &BigInt::from(message);
 		let hashed_msg: P = hash_to_curve_with_auxillary(&message_bn, &BigInt::from(3));
@@ -385,8 +387,35 @@ P::Scalar: Zeroize + Clone
 			proof
 		}
 	}
+
+
+	pub fn partial_eval_non_valid(&self, message: &[u8]) -> PartialSignatureProverOutput<P>
+	{
+		let message_bn = &BigInt::from(message);
+		let hashed_msg: P = hash_to_curve_with_auxillary(&message_bn, &BigInt::from(3));
+		//let hashed_msg: P = self::hash_to_curve(&message_bn, &self.vk.bytes_compressed_to_big_int());
+		let x =  P::Scalar::new_random();
+		let sig_i = hashed_msg.scalar_mul(&x.get_element());
+		let w = sigma_ec_ddh::ECDDHWitness { x: ECScalar::from(&x.to_big_int()) };
+		let g = P::generator();
+		let vk = g * P::Scalar::new_random();
+		let delta = sigma_ec_ddh::ECDDHStatement {
+			g1: g,
+			h1: vk,
+			g2: hashed_msg,
+			h2: sig_i
+		};
+		let proof = sigma_ec_ddh::ECDDHProof::prove(&w, &delta);
+		//assert!(proof.verify(&delta).is_ok());
+
+		PartialSignatureProverOutput {
+			party_index: self.party_index,
+			sig_i,
+			proof
+		}
+	}
 }
-	pub fn verify_partial_sig<P:ECPoint> (
+pub fn verify_partial_sig<P:ECPoint> (
 		message: &[u8], vk: P, prover_output: PartialSignatureProverOutput<P>)
 		-> Result<(),Error>
 		where
@@ -411,20 +440,23 @@ P::Scalar: Zeroize + Clone
 			}
 		}
 
-pub fn verify_partial_sig_vec<P:ECPoint>(
+pub fn valid_signers<P:ECPoint>(
 	message: &[u8], vk_vec: Vec<P>, prover_output_vec: Vec<PartialSignatureProverOutput<P>>)
-	-> Vec<Result<(),Error>>
+	-> Vec<usize>
 	where
 		P:ECPoint ,
 		P::Scalar: Zeroize + Clone
 	{
 		let g = P::generator();
-		let valid_vec = prover_output_vec
+		let valid_signers_index = prover_output_vec
 			.iter()
-			.map(|prover_output| {
-				let party_index = prover_output.party_index;
-					verify_partial_sig(message,vk_vec[party_index].clone(), prover_output.clone())
-			}).collect();
-		valid_vec
+			.filter(|&prover_output| {
+				verify_partial_sig(
+					message,vk_vec[prover_output.party_index].clone(), prover_output.clone())
+					.is_ok()
+				})
+			.map(|prover_output| prover_output.party_index)
+			.collect();
+	valid_signers_index
 	}
 
