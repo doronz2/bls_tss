@@ -104,11 +104,27 @@ pub struct PartyKeys<P:ECPoint> {
 }
 
 //(self.party_index, sig_i, proof)
-
+#[derive(Clone)]
 pub struct PartialSignatureProverOutput<P:ECPoint>{
 	pub party_index: usize,
 	sig_i : P,
 	proof: sigma_ec_ddh::ECDDHProof<P>
+}
+
+use std::fmt;
+
+impl<P> fmt::Debug for PartialSignatureProverOutput<P>
+where
+	P: ECPoint + fmt::Debug,
+	sigma_ec_ddh::ECDDHProof<P>: fmt::Debug,
+{
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		f.debug_struct("PartialSignatureProverOutput")
+			.field("party_index", &self.party_index)
+			.field("sig_i", &self.sig_i)
+			.field("proof", &self.proof)
+			.finish()
+	}
 }
 
 impl <P:ECPoint>KeyGenMessagePhase1<P>{
@@ -406,8 +422,8 @@ pub fn verify_partial_sig_vec<P:ECPoint>(
 		let valid_vec = prover_output_vec
 			.iter()
 			.map(|prover_output| {
-				let party_index = prover_output.clone().party_index;
-					verify_partial_sig(message,vk_vec.get(party_index), prover_output.clone())
+				let party_index = prover_output.party_index;
+					verify_partial_sig(message,vk_vec[party_index].clone(), prover_output.clone())
 			}).collect();
 		valid_vec
 	}
