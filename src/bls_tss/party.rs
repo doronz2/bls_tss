@@ -6,11 +6,10 @@ use curv::cryptographic_primitives::hashing::traits::Hash;
 use curv::elliptic::curves::traits::ECPoint;
 use curv::elliptic::curves::traits::ECScalar;
 use serde::export::fmt::Debug;
-use curv::cryptographic_primitives::secret_sharing::feldman_vss;
+use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
 use curv::cryptographic_primitives::pairing::pairing_bls12_381::PairingBls;
 use curv::cryptographic_primitives::pairing::traits::PAIRING;
 use curv::cryptographic_primitives::proofs::sigma_ec_ddh;
-//use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
 use crate::bls_tss::Error;
 use zeroize::{Zeroize, DefaultIsZeroes};
 
@@ -54,6 +53,14 @@ pub struct ReceivedCommitment{
 
 }
 */
+
+
+#[derive(Debug)]
+pub struct Parameters {
+	pub threshold: u16,   //t
+	pub share_count: u16, //n
+}
+
 
 #[derive(Clone,Debug,Serialize)]
 pub struct Party<P: ECPoint>{
@@ -196,11 +203,11 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 
 		let G = P::generator();
 		let (vss_a, shares) =
-			feldman_vss::VerifiableSS::share_given_generator(t, l, &a_i0,G);
+			VerifiableSS::share_given_generator(t, l, &a_i0,G);
 		let commitments_a: Vec<P> =vss_a.commitments;
 		let H = P::base_point2();
 		let (vss_b, shares_prime) =
-			feldman_vss::VerifiableSS::<P>::share_given_generator(t, l, &P::Scalar::new_random(), H);
+			VerifiableSS::<P>::share_given_generator(t, l, &P::Scalar::new_random(), H);
 		let commitments_b: Vec<P> = vss_b.commitments;
 		Self {
 			a_i0,
@@ -358,7 +365,7 @@ P::Scalar: Zeroize + Clone
 			sk,
 			vk,
 			rk,
-			party_index: 0
+			party_index: index
 		}
 	}
 
@@ -415,6 +422,7 @@ P::Scalar: Zeroize + Clone
 		}
 	}
 }
+
 pub fn verify_partial_sig<P:ECPoint> (
 		message: &[u8], vk: P, prover_output: PartialSignatureProverOutput<P>)
 		-> Result<(),Error>
@@ -432,6 +440,7 @@ pub fn verify_partial_sig<P:ECPoint> (
 				h2: prover_output.sig_i
 			};
 		let valid = prover_output.proof.verify(&delta);
+			//assert!(valid.is_ok());
 			if valid.is_ok(){
 				Ok(())
 			}
@@ -441,22 +450,49 @@ pub fn verify_partial_sig<P:ECPoint> (
 		}
 
 pub fn valid_signers<P:ECPoint>(
-	message: &[u8], vk_vec: Vec<P>, prover_output_vec: Vec<PartialSignatureProverOutput<P>>)
-	-> Vec<usize>
+	message: &[u8],
+	vk_vec: Vec<P>,
+	prover_output_vec: &Vec<PartialSignatureProverOutput<P>>
+) -> (Vec<usize>, Vec<P>)
 	where
 		P:ECPoint ,
 		P::Scalar: Zeroize + Clone
 	{
 		let g = P::generator();
-		let valid_signers_index = prover_output_vec
+		let valid_signers = prover_output_vec
 			.iter()
-			.filter(|&prover_output| {
+			.filter(|&&prover_output| {
 				verify_partial_sig(
-					message,vk_vec[prover_output.party_index].clone(), prover_output.clone())
+					message,vk_vec[&prover_output.party_index], prover_output)
 					.is_ok()
 				})
-			.map(|prover_output| prover_output.party_index)
+			.map(|prover_output|
+					 (&prover_output.party_index, &prover_output.sig_i)
+			)
 			.collect();
-	valid_signers_index
+	valid_signers
 	}
 
+	pub fn combine<P:ECPoint>(
+		params: &Parameters,
+		message: &[u8],
+		vk_vec: Vec<P>,
+		provers_output_vec: &Vec<PartialSignatureProverOutput<P>>) -> &P
+	{
+		assert_eq!(*provers_output_vec.len(), params.share_count as usize);
+		let valid_verifiers =
+			valid_signers(message, vk_vec, &provers_output_vec);
+		let indices = valid_verifiers.0;
+		let sig_i_vec = valid_verifiers.1;
+		let shares: Vec<P> = indices
+			.iter()
+			.zip(sig_i_vec.iter())
+			.map(|i, sig_i| {
+				let lagrange_coeff_i = VerifiableSS.map_share_to_new_params(i, indices);
+				sig_i * lagrange_coeff_i
+			}).collect();
+		let mut shares_iter = shares.iter();
+		let head = shares_iter.next().unwrap();
+		let sig = shares_iter.fold(head, |acc, share_i| acc + share_i);
+		sig
+	}

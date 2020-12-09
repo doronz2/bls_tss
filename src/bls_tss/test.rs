@@ -172,7 +172,7 @@ mod test{
             .map(|party_keys| {
                 let b = rng.gen_range(0,2);
                 println!("b={}",b);
-                if b >= 0 {
+                if b == 0 {
                     party_keys.partial_eval(message)
                 }
                 else{
