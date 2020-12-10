@@ -27,7 +27,7 @@ mod test{
     type GE2 = curv::elliptic::curves::bls12_381::g2::GE;
 
     #[test]
-    fn test_key_gen(){
+    fn integration_test(){
         let l = 3;
         let t = 2;
         let mut party_vec = vec![];
@@ -150,7 +150,7 @@ mod test{
     fn test_partial_sig() {
         let message: &[u8; 4] = &[124, 12, 251, 82];
         let party_keys = Keys::<GE1>::generate_random_key(0);
-        let prover_output = party_keys.partial_eval(message);
+        let prover_output = &party_keys.partial_eval(message);
         let valid = verify_partial_sig(message, party_keys.get_vk(), prover_output).is_ok();
         assert!(valid);
     }
@@ -182,11 +182,32 @@ mod test{
             .collect();
 
         let vk_vec = key_vec.iter().map(|key| key.get_vk()).collect();
-        let valid_signers_index = valid_signers(message,vk_vec,provers_output_vec);
-        println!("valid signers indices {:?}",valid_signers_index);
+        let valid_signers_index = valid_signers(message,vk_vec,&provers_output_vec);
+        println!("valid signers indices {:#?}",valid_signers_index);
     }
 
 
-}
+/*
+    pub fn test_combine_shares(){
+        let message: &[u8; 4] = &[124, 12, 251, 82];
+        const n: usize = 3;
+        const t: usize = 2;
 
+        let sk  = FE2::new_random();
+        let pk = GE2 * sk;
+
+        sk_shares = [FE1;5];
+        for i in 0..n-1{
+            sk_vec[i] = FE1::new_random();
+        }
+        let sum_shares_except_the_last = sk_shares
+            .iter()
+            .fold(FE2::zero(), |acc, share| acc + share);
+        sk[n-1] = sk - sum_shares_except_the_last;
+
+        let params = Parameters{ threshold: t, share_count: n };
+    }
+*/
+
+}
 
