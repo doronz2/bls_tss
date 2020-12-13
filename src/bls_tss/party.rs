@@ -174,7 +174,8 @@ pub fn phase_1_validate_commitments<P: ECPoint + Copy + Debug>(received_msg_comm
 	}
 }
 
-pub fn 	poll_messages_phase_1
+//keygen_generating_phase_validate_and_combine_shares function validates eq(4) and combine the secret key shares from the other parties
+pub fn keygen_generating_phase_validate_and_combine_shares
 (received_msg_phase_1: &Vec<KeyGenMessagePhase1<GE1>>)-> (Keys<GE1>, SharesSkOfParty) {
 	let party_index= received_msg_phase_1[0].index;
 	let (sk_vec, vk_vec) : (Vec<FE1>, Vec<FE1>) = received_msg_phase_1.iter()
@@ -183,9 +184,12 @@ pub fn 	poll_messages_phase_1
 		.unzip();
 	(
 		Keys::<GE1>::combine_key_shares_from_qualified(sk_vec.clone(),vk_vec,party_index),
-		SharesSkOfParty{ sk_ij: sk_vec.clone(), party_index }
+		SharesSkOfParty{ sk_ij: sk_vec.clone(), party_index}
 	)
 }
+
+
+//pub fn keygen_extracting_phase_validate_and_compute_PK_and_verification_keys
 
 /*
 pub fn invalid_commitments_vec<P:ECPoint + Copy + Debug>
@@ -196,8 +200,8 @@ pub fn invalid_commitments_vec<P:ECPoint + Copy + Debug>
 		map(|i| !phase_1_validate_commitments((KeyGenMessagePhase1{commitment[i].clone(), shares_vec[i], i)).is_ok())
 		.collect()
 }
+*/
 
- */
 
 pub fn create_list_of_blames(blame_from_i: Vec<Vec<bool>>, t: usize)->Vec<usize> {
 	//let vecs = Vec::from([Vec::from([1, 2, 3, 8]), Vec::from([4, 5, 6, 9]), Vec::from([10, 11, 12, 13])]);

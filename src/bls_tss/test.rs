@@ -50,7 +50,7 @@ mod test{
 
         let (party_keys_vec_received, sk_shares_vec): (Vec<Keys<GE1>>,Vec<SharesSkOfParty>) = msg_received_vec_phase_1.iter().
             map(| party_msg_received|
-                poll_messages_phase_1(party_msg_received)
+                keygen_generating_phase_validate_and_combine_shares(party_msg_received)
             )
             .unzip();
 
@@ -67,8 +67,10 @@ mod test{
                         .iter()
                         .enumerate()
                     //filter(|index_receiver| party_sender_index != index_receiver).
-                        .map(|(party_sender_index, party_sender)|{
-                        let received_msg = party_sender.phase_2_broadcast_commitment();
+                        .map(|(party_sender_index, party_sender)|
+                             party_sender.phase_2_broadcast_commitment()
+/*
+                            let received_msg = party_sender.phase_2_broadcast_commitment();
                         let s_ij = sk_shares_vec[index_receiver].sk_ij[party_sender_index];
                         let valid = party_vec[index_receiver].validate_i_commitment_phase_2(received_msg.clone(),s_ij).is_ok();
                         assert!(valid);
@@ -79,7 +81,10 @@ mod test{
                             else{
                                 Err(Error::InvalidSS_Phase2)
                             }
-                    }).
+                    }
+                    */
+                    ).
+
                     collect();
                     Party::<GE1>::compute_public_key(pk_vec)
                 }
