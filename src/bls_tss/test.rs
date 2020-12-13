@@ -2,27 +2,11 @@
 
 #[cfg(test)]
 mod test{
-    use curv::elliptic::curves::bls12_381::g1;
-    use curv::elliptic::curves::bls12_381::g2;
     use curv::BigInt;
-    use curv::cryptographic_primitives::hashing::hash_sha256;
-    use curv::cryptographic_primitives::hashing::traits::Hash;
-    use curv::elliptic::curves::traits::ECPoint;
     use curv::elliptic::curves::traits::ECScalar;
-    use serde::export::fmt::Debug;
-    use curv::cryptographic_primitives::secret_sharing::feldman_vss;
-    use curv::cryptographic_primitives::pairing::pairing_bls12_381::PairingBls;
-    use curv::cryptographic_primitives::pairing::traits::PAIRING;
-    use curv::cryptographic_primitives::proofs::sigma_ec_ddh;
-    //use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
     use crate::bls_tss::Error;
-    use zeroize::Zeroize;
     use rand::Rng;
     use crate::bls_tss::party::*;
-    use crate::bls_tss::*;
-    use std::any::Any;
-    use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
-    use curv::cryptographic_primitives::twoparty::dh_key_exchange::compute_pubkey;
 
     type GE1 = curv::elliptic::curves::bls12_381::g1::GE;
     type FE1 = curv::elliptic::curves::bls12_381::g1::FE;
@@ -33,6 +17,7 @@ mod test{
         let l = 3;
         let t = 2;
         let valid_shares = 0;
+
         let mut party_vec = vec![];
         let party_0 = Party::<GE1>::phase_1_commit(0,l,t);
         let party_1 = Party::<GE1>::phase_1_commit(1,l,t);
@@ -48,53 +33,26 @@ mod test{
 
 
         //return a vector of vectors of received messages for each party
-        let msg_received_vec_phase_1: Vec<Vec<_>> =
+        let msg_received_vec_phase_1: Vec<Vec<KeyGenMessagePhase1<GE1>>> =
             (0..l).
                 //filter(|index_receiver| party_sender_index != index_receiver).
                 map(|index_receiver|{
                     party_vec.
                         iter().
                         map(| party_sender| {
-                            let received_msg = party_sender.phase_1_broadcast_commitment(index_receiver);
-                            let valid = phase_1_validate_commitments(received_msg.clone()).is_ok();
-                            assert!(valid);
-                            if valid {
-                                Ok(received_msg)// receive messages sk and sk'
-                            }
-                            else{
-                                Err(Error::InvalidSS_phase1)
-                            }
+                            party_sender.phase_1_broadcast_commitment(index_receiver)
                         }).
-                        collect::<Vec<_>>()
+                        collect::<Vec<KeyGenMessagePhase1<GE1>>>()
                 }).
-                collect::<Vec<Vec<_>>>();
+                collect::<Vec<Vec<KeyGenMessagePhase1<GE1>>>>();
         //println!("party_msg_received {:?}", msg_received_vec_phase_1[0].len());
 
 
-
-
-
-        let party_keys_vec_received: Vec<PartyKeys<GE1>> = msg_received_vec_phase_1.iter().
-            map(| party_msg_received| {
-                let (sk_vec,rk_vec)= party_msg_received.iter().
-                    filter(|msg_1| msg_1.is_ok()).//filter out the non valid commitiments
-                    map(|msg_1| {
-                        let msg = msg_1.clone().expect("not valid commitment - did not pass eq 4");
-                        msg.output_shares()
-                    })
-                    .unzip();
-                //println!(" --------------- sk_vec ----- {:?}",sk_vec::<Vec<FE1>>.len());
-                let party_index = party_msg_received[0].clone().unwrap().index;
-                let party_key_pairs = Keys::<GE1>::combine_key_shares_from_qualified(&sk_vec,rk_vec, party_index);
-                //println!("sk_vec {:?}",sk_vec.clone());
-
-                PartyKeys{
-                    Keys: party_key_pairs,
-                    sk_ij: sk_vec,
-                }
-
-            })
-            .collect();
+        let (party_keys_vec_received, sk_shares_vec): (Vec<Keys<GE1>>,Vec<SharesSkOfParty>) = msg_received_vec_phase_1.iter().
+            map(| party_msg_received|
+                poll_messages_phase_1(party_msg_received)
+            )
+            .unzip();
 
 
 
@@ -111,7 +69,7 @@ mod test{
                     //filter(|index_receiver| party_sender_index != index_receiver).
                         .map(|(party_sender_index, party_sender)|{
                         let received_msg = party_sender.phase_2_broadcast_commitment();
-                        let s_ij = party_keys_vec_received[index_receiver].sk_ij[party_sender_index];
+                        let s_ij = sk_shares_vec[index_receiver].sk_ij[party_sender_index];
                         let valid = party_vec[index_receiver].validate_i_commitment_phase_2(received_msg.clone(),s_ij).is_ok();
                         assert!(valid);
                         if valid {
@@ -168,7 +126,7 @@ mod test{
         let provers_output_vec: Vec<PartialSignatureProverOutput<GE1>> = party_keys_vec_received
             .iter()
             .map(|party_keys| {
-                    party_keys.Keys.partial_eval(message)
+                    party_keys.partial_eval(message)
                 })
             .collect();
 
@@ -190,7 +148,6 @@ mod test{
     #[test]
     fn test_vector_sig(){
         let message: &[u8; 4] = &[124, 12, 251, 82];
-        let G = GE1::generator();
 
         let mut key_vec: Vec<Keys<GE1>> = Vec::new();
         for i in 0..20{

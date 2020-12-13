@@ -11,7 +11,7 @@ use curv::cryptographic_primitives::pairing::pairing_bls12_381::PairingBls;
 use curv::cryptographic_primitives::pairing::traits::PAIRING;
 use curv::cryptographic_primitives::proofs::sigma_ec_ddh;
 use crate::bls_tss::Error;
-use zeroize::{Zeroize, DefaultIsZeroes};
+use zeroize::Zeroize;
 
 
 type GE1 = g1::GE;
@@ -79,6 +79,12 @@ pub struct VerificationKeys<P: ECPoint>{
 	pub vk_vec: Vec<P>,
 }
 
+#[derive(Clone,Debug,Serialize)]
+pub struct SharesSkOfParty{
+	pub sk_ij: Vec<FE1>,
+	party_index: usize
+}
+
 
 #[derive(Clone,Debug,Serialize)]
 pub struct KeyGenMessagePhase1<P: ECPoint>{
@@ -97,18 +103,13 @@ pub struct KeyGenBroadcastMessagePhase2<'a, P:ECPoint>{
 }
 
 #[derive(Clone,Debug,Serialize)]
-pub struct Keys<P: ECPoint>{
+pub struct Keys< P: ECPoint>{
 	sk: P::Scalar,
 	vk: P,
 	rk: P::Scalar,
-	party_index: usize
+	party_index: usize,
 }
 
-#[derive(Clone,Debug)]
-pub struct PartyKeys<P:ECPoint> {
-	pub Keys: Keys<P>,
-	pub sk_ij : Vec<P::Scalar>,
-}
 
 pub struct PublicKey<T: ECPoint>{
 	pub public_key :T
@@ -173,6 +174,18 @@ pub fn phase_1_validate_commitments<P: ECPoint + Copy + Debug>(received_msg_comm
 	}
 }
 
+pub fn 	poll_messages_phase_1
+(received_msg_phase_1: &Vec<KeyGenMessagePhase1<GE1>>)-> (Keys<GE1>, SharesSkOfParty) {
+	let party_index= received_msg_phase_1[0].index;
+	let (sk_vec, vk_vec) : (Vec<FE1>, Vec<FE1>) = received_msg_phase_1.iter()
+		.filter(|&rec_msg| phase_1_validate_commitments(rec_msg.clone()).is_ok())
+		.map(|valid_msg| valid_msg.output_shares())
+		.unzip();
+	(
+		Keys::<GE1>::combine_key_shares_from_qualified(sk_vec.clone(),vk_vec,party_index),
+		SharesSkOfParty{ sk_ij: sk_vec.clone(), party_index }
+	)
+}
 
 /*
 pub fn invalid_commitments_vec<P:ECPoint + Copy + Debug>
@@ -242,6 +255,8 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 			index
 		}
 	}
+
+
 
 
 	pub fn phase_2_broadcast_commitment(&self) -> KeyGenBroadcastMessagePhase2<P> {
@@ -318,19 +333,19 @@ impl<P: ECPoint > Party<P>{
 
 
 
-impl<P:ECPoint + Debug> Keys<P> {
+impl< P:ECPoint + Debug> Keys<P> {
 	pub fn createKeys(sk: P::Scalar, vk: P, rk: P::Scalar, party_index: usize) -> Self {
 		Self {
 			sk,
 			vk,
 			rk,
-			party_index
+			party_index,
 		}
 	}
 
-	pub fn combine_key_shares_from_qualified(sk_qualified: &Vec<P::Scalar>, sk_prime_qualified: Vec<P::Scalar>, party_index: usize) -> Keys<P> {
+	pub fn combine_key_shares_from_qualified(sk_qualified: Vec<P::Scalar>, sk_prime_qualified: Vec<P::Scalar>, party_index: usize) -> Keys<P> {
 		let sk = sk_qualified.into_iter().
-			fold(P::Scalar::zero(), |acc, &e| acc + e);
+			fold(P::Scalar::zero(), |acc, e| acc + e);
 		let vk = P::generator() * sk;
 		let rk = sk_prime_qualified.iter().
 			fold(P::Scalar::zero(), |acc, &e| acc + e);
@@ -376,8 +391,8 @@ P::Scalar: Zeroize + Clone
 			sk,
 			vk,
 			rk,
-			party_index: index
-		}
+			party_index: index,
+			}
 	}
 
 	pub fn partial_eval(&self, message: &[u8]) -> PartialSignatureProverOutput<P>
@@ -466,7 +481,6 @@ pub fn valid_signers(
 	prover_output_vec: Vec<PartialSignatureProverOutput<GE1>>
 ) -> (Vec<usize>, Vec<GE1>)
 	{
-		let g = GE1::generator();
 		let valid_signers = prover_output_vec
 			.iter()
 			.filter(|&prover_output| {
