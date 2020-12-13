@@ -93,7 +93,7 @@ pub struct KeyGenMessagePhase1<P: ECPoint>{
 #[derive(Clone,Debug,Serialize)]
 pub struct KeyGenBroadcastMessagePhase2<'a, P:ECPoint>{
 	pub A_ik_vec: &'a Vec<P>,
-	B_i0: GE2
+	pub B_i0: GE2
 }
 
 #[derive(Clone,Debug,Serialize)]
@@ -108,6 +108,10 @@ pub struct Keys<P: ECPoint>{
 pub struct PartyKeys<P:ECPoint> {
 	pub Keys: Keys<P>,
 	pub sk_ij : Vec<P::Scalar>,
+}
+
+pub struct PublicKey<T: ECPoint>{
+	pub public_key :T
 }
 
 //(self.party_index, sig_i, proof)
@@ -281,8 +285,10 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 
 	}
 
-	pub fn compute_public_key(B_i0_vec: Vec<GE2>) -> GE2{
-		let mut B_i0_iter = B_i0_vec.iter();
+	pub fn compute_public_key(B_i0_vec: Vec<Result<GE2,Error>>) -> GE2{
+		let valid_Bi_0_shares: Vec<GE2> = B_i0_vec.iter().filter(|e| e.is_ok())
+			.map(|&valid_e| valid_e.unwrap()).collect();
+		let mut B_i0_iter = valid_Bi_0_shares.iter();
 		let head = B_i0_iter.next().unwrap();
 		B_i0_iter.fold(*head, |acc , B_i0| acc + B_i0)
 	}
@@ -457,7 +463,7 @@ pub fn verify_partial_sig<P> (
 pub fn valid_signers(
 	message: &[u8],
 	vk_vec: Vec<GE1>,
-	prover_output_vec: &Vec<PartialSignatureProverOutput<GE1>>
+	prover_output_vec: Vec<PartialSignatureProverOutput<GE1>>
 ) -> (Vec<usize>, Vec<GE1>)
 	{
 		let g = GE1::generator();
@@ -511,7 +517,7 @@ pub fn combine(
 	params: &Parameters,
 	message: &[u8],
 	vk_vec: Vec<GE1>,
-	provers_output_vec: &Vec<PartialSignatureProverOutput<GE1>>) -> GE1
+	provers_output_vec: Vec<PartialSignatureProverOutput<GE1>>) -> GE1
 {
 	assert_eq!(provers_output_vec.len(), params.share_count as usize);
 	let (indices, sig_shares) =

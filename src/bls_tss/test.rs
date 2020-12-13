@@ -21,6 +21,8 @@ mod test{
     use crate::bls_tss::party::*;
     use crate::bls_tss::*;
     use std::any::Any;
+    use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
+    use curv::cryptographic_primitives::twoparty::dh_key_exchange::compute_pubkey;
 
     type GE1 = curv::elliptic::curves::bls12_381::g1::GE;
     type FE1 = curv::elliptic::curves::bls12_381::g1::FE;
@@ -30,6 +32,7 @@ mod test{
     fn integration_test(){
         let l = 3;
         let t = 2;
+        let valid_shares = 0;
         let mut party_vec = vec![];
         let party_0 = Party::<GE1>::phase_1_commit(0,l,t);
         let party_1 = Party::<GE1>::phase_1_commit(1,l,t);
@@ -84,10 +87,12 @@ mod test{
                 let party_index = party_msg_received[0].clone().unwrap().index;
                 let party_key_pairs = Keys::<GE1>::combine_key_shares_from_qualified(&sk_vec,rk_vec, party_index);
                 //println!("sk_vec {:?}",sk_vec.clone());
+
                 PartyKeys{
                     Keys: party_key_pairs,
-                    sk_ij: sk_vec
+                    sk_ij: sk_vec,
                 }
+
             })
             .collect();
 
@@ -96,28 +101,34 @@ mod test{
 
 //////extraction phase/////////////////
         //constructing the vector v from the A_ik elements
-
-        let msg_received_vec_phase_2: Vec<Vec<_>> = party_vec.
-            iter().
-            enumerate().
-            map(|(party_sender_index, party_sender)| {
-                (0..l).
+      //  let pk_vec = Vec::new();
+        let public_keys_vec: Vec<_> =
+            (0..l).
+            map(|index_receiver|  {
+                    let pk_vec: Vec<Result<GE2,Error>> = party_vec
+                        .iter()
+                        .enumerate()
                     //filter(|index_receiver| party_sender_index != index_receiver).
-                    map(|index_receiver|{
+                        .map(|(party_sender_index, party_sender)|{
                         let received_msg = party_sender.phase_2_broadcast_commitment();
                         let s_ij = party_keys_vec_received[index_receiver].sk_ij[party_sender_index];
                         let valid = party_vec[index_receiver].validate_i_commitment_phase_2(received_msg.clone(),s_ij).is_ok();
                         assert!(valid);
                         if valid {
-                            Ok(received_msg)// receive messages sk and sk'
+                            //Ok(received_msg)// receive messages sk and sk'
+                            Ok(received_msg.B_i0)
                         }
-                        else{
-                            Err(Error::InvalidSS_phase1)
-                        }
+                            else{
+                                Err(Error::InvalidSS_Phase2)
+                            }
                     }).
-                    collect::<Vec<_>>()
-            }).
-            collect::<Vec<Vec<_>>>();
+                    collect();
+                    Party::<GE1>::compute_public_key(pk_vec)
+                }
+            ).
+            collect::<Vec<GE2>>();
+        assert_eq!(public_keys_vec[0], public_keys_vec[0]);
+        println!("pub_keys: {:#?}", public_keys_vec);
 
         let v_vec: Vec<GE1> = (0..t+1)
             .map(|i| {
@@ -128,7 +139,7 @@ mod test{
                         acc + comm.phase_2_broadcast_commitment().A_ik_vec[i])
             })
             .collect();
-        let vk: Vec<GE1> = party_vec
+        let vk_vec: Vec<GE1> = party_vec
             .iter()
             .map(|party| {
                 let mut v_vec_iter = v_vec.iter();
@@ -141,9 +152,30 @@ mod test{
                         acc + vk_base * exp
                     })
             }).collect();
-       // assert_eq!(vk[0],party_keys_vec_received[0].Keys.vk);
+       // assert_eq!(vk_vec[0],party_keys_vec_received[0].Keys.vk);
         let vk_others = VerificationKeys{vk};
         //
+
+
+
+
+
+
+
+        let message: &[u8; 4] = &[124, 12, 251, 82];
+
+
+        let provers_output_vec: Vec<PartialSignatureProverOutput<GE1>> = party_keys_vec_received
+            .iter()
+            .map(|party_keys| {
+                    party_keys.Keys.partial_eval(message)
+                })
+            .collect();
+        let valid_signers_index = valid_signers(message,vk_vec,&provers_output_vec);
+
+        let params = &Parameters{ threshold: t, share_count: l };
+        let combined_sig = combine(params, message,vk_vec,provers_output_vec);
+
     }
 
     #[test]
@@ -186,14 +218,14 @@ mod test{
         println!("valid signers indices {:#?}",valid_signers_index);
     }
 
-
 /*
     pub fn test_combine_shares(){
         let message: &[u8; 4] = &[124, 12, 251, 82];
         const n: usize = 3;
         const t: usize = 2;
+        let sk  = FE1::new_random();
 
-        let sk  = FE2::new_random();
+        VerifiableSS::share(t,n,sk);
         let pk = GE2 * sk;
 
         sk_shares = [FE1;5];
