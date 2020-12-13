@@ -76,7 +76,7 @@ pub struct Party<P: ECPoint>{
 
 #[derive(Clone,Debug,Serialize)]
 pub struct VerificationKeys<P: ECPoint>{
-	pub vk: Vec<P>,
+	pub vk_vec: Vec<P>,
 }
 
 

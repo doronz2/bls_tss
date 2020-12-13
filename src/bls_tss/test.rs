@@ -153,7 +153,7 @@ mod test{
                     })
             }).collect();
        // assert_eq!(vk_vec[0],party_keys_vec_received[0].Keys.vk);
-        let vk_others = VerificationKeys{vk};
+        //let vk_others = VerificationKeys{vk_vec};
         //
 
 
@@ -171,11 +171,11 @@ mod test{
                     party_keys.Keys.partial_eval(message)
                 })
             .collect();
-        let valid_signers_index = valid_signers(message,vk_vec,&provers_output_vec);
 
         let params = &Parameters{ threshold: t, share_count: l };
         let combined_sig = combine(params, message,vk_vec,provers_output_vec);
-
+        let pk = public_keys_vec[0];
+        assert!(verify(pk,message,combined_sig));
     }
 
     #[test]
@@ -214,7 +214,7 @@ mod test{
             .collect();
 
         let vk_vec = key_vec.iter().map(|key| key.get_vk()).collect();
-        let valid_signers_index = valid_signers(message,vk_vec,&provers_output_vec);
+        let valid_signers_index = valid_signers(message,vk_vec,provers_output_vec);
         println!("valid signers indices {:#?}",valid_signers_index);
     }
 
