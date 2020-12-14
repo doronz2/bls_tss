@@ -60,13 +60,23 @@ mod test{
 //////extraction phase/////////////////
         //constructing the vector v from the A_ik elements
       //  let pk_vec = Vec::new();
-        let poll_broadcast_extraction_phase: Vec<Vec<KeyGenBroadcastMessagePhase2<GE1>>> =
+        let extraction_phase_broadcast_vec: Vec<Vec<KeyGenBroadcastMessagePhase2<GE1>>> =
             (0..l).
                 map(|index_receiver|
                     party_vec.iter()
                         .map(|party_sender| party_sender.phase_2_broadcast_commitment())
                         .collect())
                 .collect();
+
+        let shared_key_vec = extraction_phase_broadcast_vec
+            .iter()
+            .enumerate()
+            .map(|(party_index, &bc_received_by_party)|
+                keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
+                    party_index,
+                    bc_received_by_party,
+                    bcsk_shares_vec)
+            ).collect();
 
 
 /*

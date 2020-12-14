@@ -100,7 +100,6 @@ pub struct KeyGenMessagePhase1<P: ECPoint>{
 pub struct KeyGenBroadcastMessagePhase2<'a, P:ECPoint>{
 	pub A_ik_vec: &'a Vec<P>,
 	pub B_i0: GE2,
-	pub index: usize
 }
 
 #[derive(Clone,Debug,Serialize)]
@@ -111,9 +110,10 @@ pub struct Keys< P: ECPoint>{
 	party_index: usize,
 }
 
-
-pub struct SharedKeys<T: ECPoint>{
-	pub public_key :T
+#[derive(Clone,Debug,Serialize)]
+pub struct SharedKeys{
+	pub public_key: GE2,
+	pub verification_keys: Vec<GE1>
 }
 
 //(self.party_index, sig_i, proof)
@@ -255,7 +255,7 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 	}
 
 
-	pub fn phase_2_broadcast_commitment(&self) -> KeyGenBroadcastMessagePhase2<P> {
+	pub fn phase_2_broadcast_commitment() -> KeyGenBroadcastMessagePhase2<P> {
 		let g2: GE2 = GE2::generator();
 		//converting a_i0 from P to T (i.e., from group G1 to group G2)
 		let a_i0: &FE2 = &<FE2 as ECScalar>::from(&self.a_i0.to_big_int());
@@ -265,53 +265,31 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 			B_i0
 		}
 	}
-
+}
 
 	pub fn keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
-		&self,
+		party_receiver_index: usize,
 		received_broadcast: Vec<KeyGenBroadcastMessagePhase2<GE1>>,
-		sk_shares: Vec<SharesSkOfParty>) {
+		sk_shares: Vec<SharesSkOfParty>) -> SharedKeys
+	{
 		let valid_broadcasts: Vec<KeyGenBroadcastMessagePhase2<GE1>> = received_broadcast.iter()
 			.filter(|bc_from_sender| {
 				//	if bc_from_sender.index in QUAL  - continue this
 				let s_ij = sk_shares.sk_ij[bc_from_sender.index];
-				self.validate_i_commitment_phase_2(received_msg.clone(), s_ij).is_ok()
+				validate_i_commitment_phase_2(party_receiver_index, received_msg.clone(), s_ij).is_ok()
 			}).collect();
 		let pk_vec = valid_broadcasts.iter()
 			.map(|bc_from_sender| bc_from_sender.B_i0)
 			.collect();
 		let pk = compute_public_key(pk_vec);
-
+		let vk_vec = compute_verification_keys(valid_broadcasts);
+		SharedKeys {
+			public_key: pk,
+			verification_keys: vk_vec
+		}
 	}
 
-
-	pub fn compute_verification_keys(bc_commitments: Vec<Vec<GE1>>){
-		let v_vec: Vec<GE1> = (0..t+1)
-			.map(|i| {
-				let mut bc_commitments_iter = bc_commitments.iter();
-				let A_i0 = bc_commitments_iter.next().unwrap();
-				bc_commitments_iter
-					.fold(A_i0[i], |acc,A_ik| acc + A_ik[i])
-			})
-			.collect();
-
-		let vk_vec: Vec<GE1> = party_vec
-			.iter()
-			.map(|party| {
-				let mut v_vec_iter = v_vec.iter();
-				let head = v_vec_iter.next().unwrap();
-				v_vec_iter.enumerate()
-					.fold(*head, |acc, (j,  &vk_base)|{
-						let exp =
-							<FE1 as ECScalar>::from(&BigInt::from( (party.index + 1) as i32).pow(	(j+1) as u32));
-						//	println!("index {}, j {}, exp: {:?}", index,j,exp.to_big_int());
-						acc + vk_base * exp
-					})
-			}).collect();
-
-	}
-
-	pub fn validate_i_commitment_phase_2(&self, msg_2: KeyGenBroadcastMessagePhase2<GE1>, s_ij: FE1) -> Result<(), Error> {
+	pub fn validate_i_commitment_phase_2(party_receiver_index: usize, msg_2: KeyGenBroadcastMessagePhase2<GE1>, s_ij: FE1) -> Result<(), Error> {
 		let commitment_i = msg_2.A_ik_vec;
 		let B_i0 = msg_2.B_i0;
 		let mut commitment_iter = commitment_i.iter();
@@ -320,7 +298,7 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 			.enumerate()
 			.fold(*head, |acc, (k, &A_ik)| {
 				let exp =
-					<FE1 as ECScalar>::from(&BigInt::from((self.index + 1) as i32).pow((k + 1) as u32));
+					<FE1 as ECScalar>::from(&BigInt::from((party_receiver_index + 1) as i32).pow((k + 1) as u32));
 				//	println!("index {}, j {}, exp: {:?}", index,j,exp.to_big_int());
 				acc + A_ik * exp
 			});
@@ -338,7 +316,6 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 			Err(Error::InvalidSS_Phase2)
 		}
 	}
-}
 
 	pub fn compute_public_key(B_i0_vec: Vec<Result<GE2,Error>>) -> GE2{
 		let valid_Bi_0_shares: Vec<GE2> = B_i0_vec.iter().filter(|e| e.is_ok())
@@ -348,6 +325,33 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 		B_i0_iter.fold(*head, |acc , B_i0| acc + B_i0)
 	}
 
+
+pub fn compute_verification_keys(bc_vec: Vec<KeyGenBroadcastMessagePhase2<GE1>>) -> Vec<GE1>
+{
+	let v_vec: Vec<GE1> = (0..t+1)
+		.map(|i| {
+			let mut bc_vec_iter = bc_vec.iter();
+			let A_i0 = bc_vec_iter.next().unwrap().A_ik_vec;
+			bc_vec_iter
+				.fold(A_i0[i], |acc,bc_party| acc + bc_party.A_ik_vec[i])
+		})
+		.collect();
+
+	let vk_vec: Vec<GE1> = bc_vec
+		.iter()
+		.map(|bc_party| {
+			let mut v_vec_iter = v_vec.iter();
+			let head = v_vec_iter.next().unwrap();
+			v_vec_iter.enumerate()
+				.fold(*head, |acc, (j,  &vk_base)|{
+					let exp =
+						<FE1 as ECScalar>::from(&BigInt::from( (bc_party.index + 1) as i32).pow(	(j+1) as u32));
+					//	println!("index {}, j {}, exp: {:?}", index,j,exp.to_big_int());
+					acc + vk_base * exp
+				})
+		}).collect();
+	vk_vec
+}
 
 
 
