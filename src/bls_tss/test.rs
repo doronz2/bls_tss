@@ -60,6 +60,16 @@ mod test{
 //////extraction phase/////////////////
         //constructing the vector v from the A_ik elements
       //  let pk_vec = Vec::new();
+        let poll_broadcast_extraction_phase: Vec<Vec<KeyGenBroadcastMessagePhase2<GE1>>> =
+            (0..l).
+                map(|index_receiver|
+                    party_vec.iter()
+                        .map(|party_sender| party_sender.phase_2_broadcast_commitment())
+                        .collect())
+                .collect();
+
+
+/*
         let public_keys_vec: Vec<_> =
             (0..l).
             map(|index_receiver|  {
@@ -67,10 +77,8 @@ mod test{
                         .iter()
                         .enumerate()
                     //filter(|index_receiver| party_sender_index != index_receiver).
-                        .map(|(party_sender_index, party_sender)|
-                             party_sender.phase_2_broadcast_commitment()
-/*
-                            let received_msg = party_sender.phase_2_broadcast_commitment();
+                        .map(|(party_sender_index, party_sender)|{
+                        let received_msg = party_sender.phase_2_broadcast_commitment();
                         let s_ij = sk_shares_vec[index_receiver].sk_ij[party_sender_index];
                         let valid = party_vec[index_receiver].validate_i_commitment_phase_2(received_msg.clone(),s_ij).is_ok();
                         assert!(valid);
@@ -81,15 +89,13 @@ mod test{
                             else{
                                 Err(Error::InvalidSS_Phase2)
                             }
-                    }
-                    */
-                    ).
-
+                    }).
                     collect();
                     Party::<GE1>::compute_public_key(pk_vec)
                 }
             ).
             collect::<Vec<GE2>>();
+  */
         assert_eq!(public_keys_vec[0], public_keys_vec[0]);
         println!("pub_keys: {:#?}", public_keys_vec);
 

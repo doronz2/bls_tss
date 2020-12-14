@@ -99,7 +99,8 @@ pub struct KeyGenMessagePhase1<P: ECPoint>{
 #[derive(Clone,Debug,Serialize)]
 pub struct KeyGenBroadcastMessagePhase2<'a, P:ECPoint>{
 	pub A_ik_vec: &'a Vec<P>,
-	pub B_i0: GE2
+	pub B_i0: GE2,
+	pub index: usize
 }
 
 #[derive(Clone,Debug,Serialize)]
@@ -111,7 +112,7 @@ pub struct Keys< P: ECPoint>{
 }
 
 
-pub struct PublicKey<T: ECPoint>{
+pub struct SharedKeys<T: ECPoint>{
 	pub public_key :T
 }
 
@@ -188,9 +189,6 @@ pub fn keygen_generating_phase_validate_and_combine_shares
 	)
 }
 
-
-//pub fn keygen_extracting_phase_validate_and_compute_PK_and_verification_keys
-
 /*
 pub fn invalid_commitments_vec<P:ECPoint + Copy + Debug>
 (
@@ -218,14 +216,13 @@ pub fn create_list_of_blames(blame_from_i: Vec<Vec<bool>>, t: usize)->Vec<usize>
 
 
 impl<P: ECPoint + Clone + Debug> Party<P> {
-
-	pub fn phase_1_commit( index: usize,  l: usize, t: usize) -> Self where <P as ECPoint>::Scalar: Clone {
+	pub fn phase_1_commit(index: usize, l: usize, t: usize) -> Self where <P as ECPoint>::Scalar: Clone {
 		let a_i0: P::Scalar = P::Scalar::new_random();
 
 		let G = P::generator();
 		let (vss_a, shares) =
-			VerifiableSS::share_given_generator(t, l, &a_i0,G);
-		let commitments_a: Vec<P> =vss_a.commitments;
+			VerifiableSS::share_given_generator(t, l, &a_i0, G);
+		let commitments_a: Vec<P> = vss_a.commitments;
 		let H = P::base_point2();
 		let (vss_b, shares_prime) =
 			VerifiableSS::<P>::share_given_generator(t, l, &P::Scalar::new_random(), H);
@@ -238,29 +235,24 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 			shares_prime,
 			commitments_a,
 			commitments_b,
-			}
+		}
 	}
 
 
-
-
-
-	pub fn phase_1_broadcast_commitment(&self, index: usize)-> KeyGenMessagePhase1<P>{
+	pub fn phase_1_broadcast_commitment(&self, index: usize) -> KeyGenMessagePhase1<P> {
 		//assert_ne!(self.index,index);
 		let C_ik = self.commitments_a.iter()
 			.zip(self.commitments_b.iter())
-			.map(|(&comm_a,&comm_b)| comm_a + comm_b)
+			.map(|(&comm_a, &comm_b)| comm_a + comm_b)
 			.collect();
 		//println!(self.shares);
 		KeyGenMessagePhase1 {
 			C_ik,
 			share: self.shares[index],
-			share_prime:  self.shares_prime[index],
+			share_prime: self.shares_prime[index],
 			index
 		}
 	}
-
-
 
 
 	pub fn phase_2_broadcast_commitment(&self) -> KeyGenBroadcastMessagePhase2<P> {
@@ -268,41 +260,85 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 		//converting a_i0 from P to T (i.e., from group G1 to group G2)
 		let a_i0: &FE2 = &<FE2 as ECScalar>::from(&self.a_i0.to_big_int());
 		let B_i0 = g2.scalar_mul(&a_i0.get_element());
-		KeyGenBroadcastMessagePhase2{
+		KeyGenBroadcastMessagePhase2 {
 			A_ik_vec: &self.commitments_a,
 			B_i0
 		}
 	}
 
 
-	pub fn validate_i_commitment_phase_2(&self,  msg_2: KeyGenBroadcastMessagePhase2<GE1>, s_ij: FE1) -> Result<(),Error>{
+	pub fn keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
+		&self,
+		received_broadcast: Vec<KeyGenBroadcastMessagePhase2<GE1>>,
+		sk_shares: Vec<SharesSkOfParty>) {
+		let valid_broadcasts: Vec<KeyGenBroadcastMessagePhase2<GE1>> = received_broadcast.iter()
+			.filter(|bc_from_sender| {
+				//	if bc_from_sender.index in QUAL  - continue this
+				let s_ij = sk_shares.sk_ij[bc_from_sender.index];
+				self.validate_i_commitment_phase_2(received_msg.clone(), s_ij).is_ok()
+			}).collect();
+		let pk_vec = valid_broadcasts.iter()
+			.map(|bc_from_sender| bc_from_sender.B_i0)
+			.collect();
+		let pk = compute_public_key(pk_vec);
+
+	}
+
+
+	pub fn compute_verification_keys(bc_commitments: Vec<Vec<GE1>>){
+		let v_vec: Vec<GE1> = (0..t+1)
+			.map(|i| {
+				let mut bc_commitments_iter = bc_commitments.iter();
+				let A_i0 = bc_commitments_iter.next().unwrap();
+				bc_commitments_iter
+					.fold(A_i0[i], |acc,A_ik| acc + A_ik[i])
+			})
+			.collect();
+
+		let vk_vec: Vec<GE1> = party_vec
+			.iter()
+			.map(|party| {
+				let mut v_vec_iter = v_vec.iter();
+				let head = v_vec_iter.next().unwrap();
+				v_vec_iter.enumerate()
+					.fold(*head, |acc, (j,  &vk_base)|{
+						let exp =
+							<FE1 as ECScalar>::from(&BigInt::from( (party.index + 1) as i32).pow(	(j+1) as u32));
+						//	println!("index {}, j {}, exp: {:?}", index,j,exp.to_big_int());
+						acc + vk_base * exp
+					})
+			}).collect();
+
+	}
+
+	pub fn validate_i_commitment_phase_2(&self, msg_2: KeyGenBroadcastMessagePhase2<GE1>, s_ij: FE1) -> Result<(), Error> {
 		let commitment_i = msg_2.A_ik_vec;
 		let B_i0 = msg_2.B_i0;
 		let mut commitment_iter = commitment_i.iter();
 		let head = commitment_iter.next().unwrap();
 		let A_ik_prod = commitment_iter
 			.enumerate()
-			.fold(*head, |acc, (k,  &A_ik)|{
+			.fold(*head, |acc, (k, &A_ik)| {
 				let exp =
-					<FE1 as ECScalar>::from(&BigInt::from((self.index + 1) as i32).pow((k+1) as u32));
+					<FE1 as ECScalar>::from(&BigInt::from((self.index + 1) as i32).pow((k + 1) as u32));
 				//	println!("index {}, j {}, exp: {:?}", index,j,exp.to_big_int());
 				acc + A_ik * exp
 			});
 
 		let g1 = &GE1::generator();
-		let check_A_ik_commitments =  A_ik_prod == g1 * &s_ij;
+		let check_A_ik_commitments = A_ik_prod == g1 * &s_ij;
 		let A_i0 = commitment_i[0];
 		let g2 = &GE2::generator();
 		let check_ai0_secret =
-			PairingBls::compute_pairing(&A_i0,&g2) == PairingBls::compute_pairing(&g1,&B_i0);
+			PairingBls::compute_pairing(&A_i0, &g2) == PairingBls::compute_pairing(&g1, &B_i0);
 
-		if check_A_ik_commitments && check_ai0_secret{
+		if check_A_ik_commitments && check_ai0_secret {
 			Ok(())
 		} else {
 			Err(Error::InvalidSS_Phase2)
 		}
-
 	}
+}
 
 	pub fn compute_public_key(B_i0_vec: Vec<Result<GE2,Error>>) -> GE2{
 		let valid_Bi_0_shares: Vec<GE2> = B_i0_vec.iter().filter(|e| e.is_ok())
@@ -311,7 +347,7 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 		let head = B_i0_iter.next().unwrap();
 		B_i0_iter.fold(*head, |acc , B_i0| acc + B_i0)
 	}
-}
+
 
 
 
