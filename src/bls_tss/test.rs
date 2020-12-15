@@ -16,12 +16,13 @@ mod test{
     fn integration_test(){
         let l = 3;
         let t = 2;
+        let params = &Parameters{ threshold: t, share_count: l };
         let valid_shares = 0;
 
         let mut party_vec = vec![];
-        let party_0 = Party::<GE1>::phase_1_commit(0,l,t);
-        let party_1 = Party::<GE1>::phase_1_commit(1,l,t);
-        let party_2 = Party::<GE1>::phase_1_commit(2,l,t);
+        let party_0 = Party::<GE1>::phase_1_commit(0,&params);
+        let party_1 = Party::<GE1>::phase_1_commit(1,&params);
+        let party_2 = Party::<GE1>::phase_1_commit(2,&params);
         //	let party_4 = Party::<GE1>::phase_1_commit(4,l,t);
         //	let party_5 = Party::<GE1>::phase_1_commit(5,l,t);
 
@@ -68,14 +69,16 @@ mod test{
                         .collect())
                 .collect();
 
-        let shared_key_vec = extraction_phase_broadcast_vec
+        let shared_key_vec:Vec<SharedKeys> = extraction_phase_broadcast_vec
             .iter()
             .enumerate()
-            .map(|(party_index, &bc_received_by_party)|
+            .map(|(party_index, bc_received_by_party)|
                 keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
                     party_index,
-                    bc_received_by_party,
-                    bcsk_shares_vec)
+                    bc_received_by_party.clone(),
+                    sk_shares_vec.clone(),
+                    &params
+                )
             ).collect();
 
 
@@ -105,7 +108,7 @@ mod test{
                 }
             ).
             collect::<Vec<GE2>>();
-  */
+
         assert_eq!(public_keys_vec[0], public_keys_vec[0]);
         println!("pub_keys: {:#?}", public_keys_vec);
 
@@ -134,13 +137,14 @@ mod test{
        // assert_eq!(vk_vec[0],party_keys_vec_received[0].Keys.vk);
         //let vk_others = VerificationKeys{vk_vec};
         //
+        */
 
 
 
 
 
 
-
+        let vk_vec = shared_key_vec[0].verification_keys.clone();
         let message: &[u8; 4] = &[124, 12, 251, 82];
 
 
@@ -153,7 +157,7 @@ mod test{
 
         let params = &Parameters{ threshold: t, share_count: l };
         let combined_sig = combine(params, message,vk_vec,provers_output_vec);
-        let pk = public_keys_vec[0];
+        let pk = shared_key_vec[0].public_key;
         assert!(verify(pk,message,combined_sig));
     }
 

@@ -96,10 +96,11 @@ pub struct KeyGenMessagePhase1<P: ECPoint>{
 
 
 
-#[derive(Clone,Debug,Serialize)]
+#[derive(Clone,Debug,Serialize,Copy)]
 pub struct KeyGenBroadcastMessagePhase2<'a, P:ECPoint>{
 	pub A_ik_vec: &'a Vec<P>,
 	pub B_i0: GE2,
+	pub index: usize
 }
 
 #[derive(Clone,Debug,Serialize)]
@@ -216,7 +217,9 @@ pub fn create_list_of_blames(blame_from_i: Vec<Vec<bool>>, t: usize)->Vec<usize>
 
 
 impl<P: ECPoint + Clone + Debug> Party<P> {
-	pub fn phase_1_commit(index: usize, l: usize, t: usize) -> Self where <P as ECPoint>::Scalar: Clone {
+	pub fn phase_1_commit(index: usize, params: &Parameters) -> Self where <P as ECPoint>::Scalar: Clone {
+		let t = params.threshold;
+		let l = params.share_count;
 		let a_i0: P::Scalar = P::Scalar::new_random();
 
 		let G = P::generator();
@@ -255,14 +258,16 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 	}
 
 
-	pub fn phase_2_broadcast_commitment() -> KeyGenBroadcastMessagePhase2<P> {
+	pub fn phase_2_broadcast_commitment(&self) -> KeyGenBroadcastMessagePhase2<P> {
 		let g2: GE2 = GE2::generator();
 		//converting a_i0 from P to T (i.e., from group G1 to group G2)
 		let a_i0: &FE2 = &<FE2 as ECScalar>::from(&self.a_i0.to_big_int());
 		let B_i0 = g2.scalar_mul(&a_i0.get_element());
+		let index = self.index;
 		KeyGenBroadcastMessagePhase2 {
 			A_ik_vec: &self.commitments_a,
-			B_i0
+			B_i0,
+			index
 		}
 	}
 }
@@ -270,26 +275,30 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 	pub fn keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
 		party_receiver_index: usize,
 		received_broadcast: Vec<KeyGenBroadcastMessagePhase2<GE1>>,
-		sk_shares: Vec<SharesSkOfParty>) -> SharedKeys
+		sk_shares: Vec<SharesSkOfParty>,
+		params: &Parameters)
+		-> SharedKeys
 	{
 		let valid_broadcasts: Vec<KeyGenBroadcastMessagePhase2<GE1>> = received_broadcast.iter()
-			.filter(|bc_from_sender| {
+			.filter(|&bc_from_sender| {
 				//	if bc_from_sender.index in QUAL  - continue this
-				let s_ij = sk_shares.sk_ij[bc_from_sender.index];
-				validate_i_commitment_phase_2(party_receiver_index, received_msg.clone(), s_ij).is_ok()
-			}).collect();
-		let pk_vec = valid_broadcasts.iter()
+				let s_ij = sk_shares[party_receiver_index].sk_ij[bc_from_sender.index];
+				validate_i_commitment_phase_2(party_receiver_index, &bc_from_sender, s_ij).is_ok()
+			})
+			.map(|&e| e)
+			.collect();
+		let pk_vec  = valid_broadcasts.iter()
 			.map(|bc_from_sender| bc_from_sender.B_i0)
 			.collect();
 		let pk = compute_public_key(pk_vec);
-		let vk_vec = compute_verification_keys(valid_broadcasts);
+		let vk_vec = compute_verification_keys(valid_broadcasts, &params);
 		SharedKeys {
 			public_key: pk,
 			verification_keys: vk_vec
 		}
 	}
 
-	pub fn validate_i_commitment_phase_2(party_receiver_index: usize, msg_2: KeyGenBroadcastMessagePhase2<GE1>, s_ij: FE1) -> Result<(), Error> {
+	pub fn validate_i_commitment_phase_2(party_receiver_index: usize, msg_2: &KeyGenBroadcastMessagePhase2<GE1>, s_ij: FE1) -> Result<(), Error> {
 		let commitment_i = msg_2.A_ik_vec;
 		let B_i0 = msg_2.B_i0;
 		let mut commitment_iter = commitment_i.iter();
@@ -317,18 +326,16 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 		}
 	}
 
-	pub fn compute_public_key(B_i0_vec: Vec<Result<GE2,Error>>) -> GE2{
-		let valid_Bi_0_shares: Vec<GE2> = B_i0_vec.iter().filter(|e| e.is_ok())
-			.map(|&valid_e| valid_e.unwrap()).collect();
-		let mut B_i0_iter = valid_Bi_0_shares.iter();
+	pub fn compute_public_key(B_i0_vec: Vec<GE2>) -> GE2{
+		let mut B_i0_iter = B_i0_vec.iter();
 		let head = B_i0_iter.next().unwrap();
 		B_i0_iter.fold(*head, |acc , B_i0| acc + B_i0)
 	}
 
 
-pub fn compute_verification_keys(bc_vec: Vec<KeyGenBroadcastMessagePhase2<GE1>>) -> Vec<GE1>
+pub fn compute_verification_keys(bc_vec: Vec<KeyGenBroadcastMessagePhase2<GE1>>, params: &Parameters) -> Vec<GE1>
 {
-	let v_vec: Vec<GE1> = (0..t+1)
+	let v_vec: Vec<GE1> = (0..params.threshold + 1)
 		.map(|i| {
 			let mut bc_vec_iter = bc_vec.iter();
 			let A_i0 = bc_vec_iter.next().unwrap().A_ik_vec;
