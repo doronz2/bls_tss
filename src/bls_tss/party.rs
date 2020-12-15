@@ -108,6 +108,7 @@ pub struct Keys< P: ECPoint>{
 	sk: P::Scalar,
 	vk: P,
 	rk: P::Scalar,
+	pub(crate) QUAL: Vec<usize>, //vector of qualified sender, i.e., senders who sent valid commitments that passed eq(4)
 	party_index: usize,
 }
 
@@ -180,14 +181,23 @@ pub fn phase_1_validate_commitments<P: ECPoint + Copy + Debug>(received_msg_comm
 pub fn keygen_generating_phase_validate_and_combine_shares
 (received_msg_phase_1: &Vec<KeyGenMessagePhase1<GE1>>)-> (Keys<GE1>, SharesSkOfParty) {
 	let party_index= received_msg_phase_1[0].index;
-	let (sk_vec, vk_vec) : (Vec<FE1>, Vec<FE1>) = received_msg_phase_1.iter()
+
+	let QUAL: Vec<usize> =  received_msg_phase_1.iter()
 		.filter(|&rec_msg| phase_1_validate_commitments(rec_msg.clone()).is_ok())
-		.map(|valid_msg| valid_msg.output_shares())
+		.enumerate()
+		.map(|(index_valid,_)| index_valid)
+		.collect();
+
+	let (sk_vec, vk_vec) : (Vec<FE1>, Vec<FE1>) = received_msg_phase_1.iter()
+		.enumerate()
+		.filter(|(index_valid, valid_msg)| QUAL.iter().any(|&i| i == *index_valid))
+		.map(|(_,valid_msg)| valid_msg.output_shares())
 		.unzip();
-	(
-		Keys::<GE1>::combine_key_shares_from_qualified(sk_vec.clone(),vk_vec,party_index),
-		SharesSkOfParty{ sk_ij: sk_vec.clone(), party_index}
-	)
+
+		(
+		Keys::<GE1>::combine_key_shares_from_qualified(sk_vec.clone(),vk_vec,party_index, QUAL),
+		SharesSkOfParty{ sk_ij: sk_vec.clone(), party_index},
+		)
 }
 
 /*
@@ -276,6 +286,7 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 		party_receiver_index: usize,
 		received_broadcast: Vec<KeyGenBroadcastMessagePhase2<GE1>>,
 		sk_shares: Vec<SharesSkOfParty>,
+		QUAL: Vec<usize>,
 		params: &Parameters)
 		-> SharedKeys
 	{
@@ -283,7 +294,8 @@ impl<P: ECPoint + Clone + Debug> Party<P> {
 			.filter(|&bc_from_sender| {
 				//	if bc_from_sender.index in QUAL  - continue this
 				let s_ij = sk_shares[party_receiver_index].sk_ij[bc_from_sender.index];
-				validate_i_commitment_phase_2(party_receiver_index, &bc_from_sender, s_ij).is_ok()
+				validate_i_commitment_phase_2(party_receiver_index, &bc_from_sender, s_ij).is_ok() //passes eq(4) tests
+				&& QUAL.iter().any(|&index| index == bc_from_sender.index) //passes eq(5) test
 			})
 			.map(|&e| e)
 			.collect();
@@ -385,22 +397,23 @@ impl<P: ECPoint > Party<P>{
 
 
 impl< P:ECPoint + Debug> Keys<P> {
-	pub fn createKeys(sk: P::Scalar, vk: P, rk: P::Scalar, party_index: usize) -> Self {
+	pub fn createKeys(sk: P::Scalar, vk: P, rk: P::Scalar, party_index: usize, QUAL: Vec<usize>) -> Self {
 		Self {
 			sk,
 			vk,
 			rk,
 			party_index,
+			QUAL
 		}
 	}
 
-	pub fn combine_key_shares_from_qualified(sk_qualified: Vec<P::Scalar>, sk_prime_qualified: Vec<P::Scalar>, party_index: usize) -> Keys<P> {
+	pub fn combine_key_shares_from_qualified(sk_qualified: Vec<P::Scalar>, sk_prime_qualified: Vec<P::Scalar>, party_index: usize, QUAL: Vec<usize>) -> Keys<P> {
 		let sk = sk_qualified.into_iter().
 			fold(P::Scalar::zero(), |acc, e| acc + e);
 		let vk = P::generator() * sk;
 		let rk = sk_prime_qualified.iter().
 			fold(P::Scalar::zero(), |acc, &e| acc + e);
-		Keys::createKeys(sk, vk, rk, party_index)
+		Keys::createKeys(sk, vk, rk, party_index, QUAL)
 	}
 }
 
@@ -438,11 +451,13 @@ P::Scalar: Zeroize + Clone
 		let sk = P::Scalar::new_random();
 		let vk = P::generator() * sk;
 		let rk = P::Scalar::new_random();
+		let QUAL  = vec![];
 		Keys {
 			sk,
 			vk,
 			rk,
 			party_index: index,
+			QUAL
 			}
 	}
 
