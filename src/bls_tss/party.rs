@@ -1,8 +1,3 @@
-/*
-BLS
-
- */
-
 use crate::bls_tss::Error;
 use curv::cryptographic_primitives::hashing::hash_sha256;
 use curv::cryptographic_primitives::hashing::traits::Hash;
@@ -31,7 +26,7 @@ pub struct Parameters {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct Party{
+pub struct Party {
     pub index: usize,
     a_i0: FE1,
     qual_parties: Vec<usize>,
@@ -91,8 +86,7 @@ pub struct PartialSignatureProverOutput {
 
 use std::fmt;
 
-impl fmt::Debug for PartialSignatureProverOutput
-{
+impl fmt::Debug for PartialSignatureProverOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("PartialSignatureProverOutput")
             .field("party_index", &self.party_index)
@@ -108,9 +102,7 @@ impl KeyGenMessagePhase1 {
     }
 }
 
-pub fn phase_1_validate_commitments(
-    received_msg_comm: KeyGenMessagePhase1,
-) -> Result<(), Error> {
+pub fn phase_1_validate_commitments(received_msg_comm: KeyGenMessagePhase1) -> Result<(), Error> {
     let commitment = received_msg_comm.C_ik;
     let shares_j = received_msg_comm.share;
     let shares_j_prime = received_msg_comm.share_prime;
@@ -124,8 +116,7 @@ pub fn phase_1_validate_commitments(
     let mut commitment_iter = commitment.iter();
     let head = commitment_iter.next().unwrap();
     let commitment_from_comms = commitment_iter.enumerate().fold(*head, |acc, (j, &comm)| {
-        let exp =
-            <FE1 as ECScalar>::from(&BigInt::from((index + 1) as i32).pow((j + 1) as u32));
+        let exp = <FE1 as ECScalar>::from(&BigInt::from((index + 1) as i32).pow((j + 1) as u32));
         acc + comm * exp
     });
     //assert_eq!(commitment_from_eval, commitment_from_comms);
@@ -156,19 +147,17 @@ pub fn keygen_generating_phase_validate_and_combine_shares(
         .map(|(_, valid_msg)| valid_msg.output_shares())
         .unzip();
 
-
     let sk_ij: Vec<FE1> = received_msg_phase_1
         .iter()
         .map(|rec_msg| rec_msg.share)
         .collect();
-
 
     (
         Keys::combine_key_shares_from_qualified(valid_sk.clone(), valid_vk, party_index, QUAL),
         SharesSkOfParty {
             sk_ij: sk_ij.clone(),
             party_index,
-        }
+        },
     )
 }
 
@@ -197,19 +186,18 @@ pub fn create_list_of_blames(blame_from_i: Vec<Vec<bool>>, t: usize) -> Vec<usiz
 }
 
 impl Party {
-    pub fn phase_1_commit(index: usize, params: &Parameters) -> Self
-     {
+    pub fn phase_1_commit(index: usize, params: &Parameters) -> Self {
         let t = params.threshold;
         let l = params.share_count;
         let a_i0: FE1 = FE1::new_random();
 
         let G = GE1::generator();
         let (vss_a, shares) = VerifiableSS::share_given_generator(t, l, &a_i0, G);
-        let commitments_a: Vec<GE1>= vss_a.commitments;
+        let commitments_a: Vec<GE1> = vss_a.commitments;
         let H = GE1::base_point2();
         let (vss_b, shares_prime) =
             VerifiableSS::share_given_generator(t, l, &FE1::new_random(), H);
-        let commitments_b: Vec<GE1>= vss_b.commitments;
+        let commitments_b: Vec<GE1> = vss_b.commitments;
         Self {
             a_i0,
             index,
@@ -221,19 +209,20 @@ impl Party {
         }
     }
 
-    pub fn phase_false_broadcast_commit(index: usize, params: &Parameters) -> Self
-    {
+    pub fn phase_false_broadcast_commit(index: usize, params: &Parameters) -> Self {
         let t = params.threshold;
         let l = params.share_count;
         let a_i0: FE1 = FE1::new_random();
 
         let G = GE1::generator();
         let (_, shares) = VerifiableSS::share_given_generator(t, l, &a_i0, G);
-        let false_commitments_a: Vec<GE1> = (0..t).map(|_| GE1::generator() * FE1::new_random()).collect();
+        let false_commitments_a: Vec<GE1> = (0..t)
+            .map(|_| GE1::generator() * FE1::new_random())
+            .collect();
         let H = GE1::base_point2();
         let (vss_b, shares_prime) =
             VerifiableSS::share_given_generator(t, l, &FE1::new_random(), H);
-        let commitments_b: Vec<GE1>= vss_b.commitments;
+        let commitments_b: Vec<GE1> = vss_b.commitments;
         Self {
             a_i0,
             index,
@@ -245,9 +234,7 @@ impl Party {
         }
     }
 
-
     pub fn phase_1_broadcast_commitment(&self, index: usize) -> KeyGenMessagePhase1 {
-        //assert_ne!(self.index,index);
         let C_ik = self
             .commitments_a
             .iter()
@@ -369,13 +356,7 @@ pub fn compute_verification_keys(
 }
 
 impl Keys {
-    pub fn createKeys(
-        sk: FE1,
-        vk: GE1,
-        rk: FE1,
-        party_index: usize,
-        QUAL: Vec<usize>,
-    ) -> Self {
+    pub fn createKeys(sk: FE1, vk: GE1, rk: FE1, party_index: usize, QUAL: Vec<usize>) -> Self {
         Self {
             sk,
             vk,
@@ -391,9 +372,7 @@ impl Keys {
         party_index: usize,
         QUAL: Vec<usize>,
     ) -> Keys {
-        let sk = sk_qualified
-            .into_iter()
-            .fold(FE1::zero(), |acc, e| acc + e);
+        let sk = sk_qualified.into_iter().fold(FE1::zero(), |acc, e| acc + e);
         let vk = GE1::generator() * sk;
         let rk = sk_prime_qualified
             .iter()
@@ -402,8 +381,7 @@ impl Keys {
     }
 }
 
-pub fn hash_to_curve_with_auxillary(message: &BigInt, auxillary: &BigInt) -> GE1
-{
+pub fn hash_to_curve_with_auxillary(message: &BigInt, auxillary: &BigInt) -> GE1 {
     let hashed = hash_sha256::HSha256::create_hash(&[message, auxillary]);
     let hashed_scalar = <FE1 as ECScalar>::from(&hashed);
     GE1::generator().scalar_mul(&hashed_scalar.get_element())
@@ -414,16 +392,13 @@ pub fn hash_1(message: &[u8]) -> GE1 {
     hash_to_curve_with_auxillary(&message_bn, &BigInt::from(3))
 }
 
-pub fn hash_to_curve(message: &BigInt) -> GE1
-
-{
+pub fn hash_to_curve(message: &BigInt) -> GE1 {
     let hashed = hash_sha256::HSha256::create_hash(&[message]);
     let hashed_scalar = <FE1 as ECScalar>::from(&hashed);
     GE1::generator().scalar_mul(&hashed_scalar.get_element())
 }
 
-impl Keys
-{
+impl Keys {
     pub fn get_vk(&self) -> GE1 {
         self.vk
     }
@@ -500,8 +475,7 @@ pub fn verify_partial_sig(
     message: &[u8],
     vk: GE1,
     prover_output: &PartialSignatureProverOutput,
-) -> Result<(), Error>
-{
+) -> Result<(), Error> {
     let message_bn = &BigInt::from(message);
     let hashed_msg: GE1 = hash_to_curve_with_auxillary(&message_bn, &BigInt::from(3));
     let g = GE1::generator();

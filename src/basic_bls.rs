@@ -65,6 +65,9 @@ mod test {
     pub fn test_simple_bls() {
         let key_pair: KeyPair<GE2> = KeyPair::create_pair();
         let message: [u8; 4] = [79, 77, 69, 82];
-        assert!(verify_bls_signature(&key_pair, &hash_sha256::HSha256::create_hash_from_slice(&message)))
-       }
+        assert!(verify_bls_signature(
+            &key_pair,
+            &hash_sha256::HSha256::create_hash_from_slice(&message)
+        ))
+    }
 }

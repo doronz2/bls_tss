@@ -22,12 +22,10 @@ mod test {
         party_vec.push(party_2);
         party_vec.push(party_malicious);
 
-
         //////KeyGen: extraction phase/////////////////
 
         //return a vector of vectors of received messages for each party
         let msg_received_vec_phase_1: Vec<Vec<KeyGenMessagePhase1>> = (0..l).
-                //filter(|index_receiver| party_sender_index != index_receiver).
                 map(|index_receiver|{
                     party_vec.
                         iter().
@@ -47,10 +45,8 @@ mod test {
                 .unzip();
 
         //////KeyGen: extraction phase/////////////////
-        //constructing the vector v from the A_ik elements
-        //  let pk_vec = Vec::new();
-        let extraction_phase_broadcast_vec: Vec<Vec<KeyGenBroadcastMessagePhase2>> = (0
-            ..params.share_count)
+        let extraction_phase_broadcast_vec: Vec<Vec<KeyGenBroadcastMessagePhase2>> = (0..params
+            .share_count)
             .map(|_| {
                 party_vec
                     .iter()
@@ -89,6 +85,8 @@ mod test {
         assert!(verify(pk, message, combined_sig));
     }
 
+
+
     #[test]
     fn test_partial_sig() {
         let message: &[u8; 4] = &[124, 12, 251, 82];
@@ -97,6 +95,7 @@ mod test {
         let valid = verify_partial_sig(message, party_keys.get_vk(), prover_output).is_ok();
         assert!(valid);
     }
+
 
     #[test]
     fn test_vector_sig() {
@@ -108,7 +107,6 @@ mod test {
         }
 
         let non_valid_provers = [1, 3];
-
         let provers_output_vec: Vec<PartialSignatureProverOutput> = key_vec
             .iter()
             .enumerate()
@@ -123,7 +121,6 @@ mod test {
                 }
             })
             .collect();
-
         let vk_vec = key_vec.iter().map(|key| key.get_vk()).collect();
         let valid_signers_index = valid_signers(message, vk_vec, provers_output_vec);
         assert_eq!([0, 2, 4], valid_signers_index.0.as_slice());
