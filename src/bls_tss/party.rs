@@ -1,3 +1,8 @@
+/*
+BLS
+
+ */
+
 use crate::bls_tss::Error;
 use curv::cryptographic_primitives::hashing::hash_sha256;
 use curv::cryptographic_primitives::hashing::traits::Hash;

@@ -47,18 +47,6 @@ pub fn compute_signature<T: ECPoint + Clone + Debug, P: ECPoint>(
     signature
 }
 
-/*
-pub fn compute_public_term<P>(self, message: &BigInt) -> P
-    where P: ECPoint + Clone + Debug
-{
-    let hashed = hash_sha256::HSha256::create_hash(&[&message, &BigInt::from(1)]);
-    let hashed_scalar = ECScalar::from(&hashed);
-
-    let pk:ECPoint = self.pk;
-     pk.scalar_mul(&hashed_scalar);
-}
-*/
-
 pub fn verify_bls_signature(key_pair: &KeyPair<GE2>, message: &BigInt) -> bool {
     let left_side = PairingBls::compute_pairing(&hash_to_curve::<GE1>(message), &key_pair.pk);
     //let signature_point = GE1::generator().scalar_mul(&key_pair.compute_signature(message).get_element());
@@ -77,10 +65,6 @@ mod test {
     pub fn test_simple_bls() {
         let key_pair: KeyPair<GE2> = KeyPair::create_pair();
         let message: [u8; 4] = [79, 77, 69, 82];
-        let check = verify_bls_signature(
-            &key_pair,
-            &hash_sha256::HSha256::create_hash_from_slice(&message),
-        );
-        assert!(check);
-    }
+        assert!(verify_bls_signature(&key_pair, &hash_sha256::HSha256::create_hash_from_slice(&message)))
+       }
 }
