@@ -128,7 +128,7 @@ pub fn phase_1_validate_commitments(
             <FE1 as ECScalar>::from(&BigInt::from((index + 1) as i32).pow((j + 1) as u32));
         acc + comm * exp
     });
-    assert_eq!(commitment_from_eval, commitment_from_comms);
+    //assert_eq!(commitment_from_eval, commitment_from_comms);
     if commitment_from_eval == commitment_from_comms {
         Ok(())
     } else {
@@ -149,19 +149,26 @@ pub fn keygen_generating_phase_validate_and_combine_shares(
         .map(|(index_valid, _)| index_valid)
         .collect();
 
-    let (sk_vec, vk_vec): (Vec<FE1>, Vec<FE1>) = received_msg_phase_1
+    let (valid_sk, valid_vk): (Vec<FE1>, Vec<FE1>) = received_msg_phase_1
         .iter()
         .enumerate()
         .filter(|(index_valid, _)| QUAL.iter().any(|&i| i == *index_valid))
         .map(|(_, valid_msg)| valid_msg.output_shares())
         .unzip();
 
+
+    let sk_ij: Vec<FE1> = received_msg_phase_1
+        .iter()
+        .map(|rec_msg| rec_msg.share)
+        .collect();
+
+
     (
-        Keys::combine_key_shares_from_qualified(sk_vec.clone(), vk_vec, party_index, QUAL),
+        Keys::combine_key_shares_from_qualified(valid_sk.clone(), valid_vk, party_index, QUAL),
         SharesSkOfParty {
-            sk_ij: sk_vec.clone(),
+            sk_ij: sk_ij.clone(),
             party_index,
-        },
+        }
     )
 }
 
@@ -213,6 +220,31 @@ impl Party {
             commitments_b,
         }
     }
+
+    pub fn phase_false_broadcast_commit(index: usize, params: &Parameters) -> Self
+    {
+        let t = params.threshold;
+        let l = params.share_count;
+        let a_i0: FE1 = FE1::new_random();
+
+        let G = GE1::generator();
+        let (_, shares) = VerifiableSS::share_given_generator(t, l, &a_i0, G);
+        let false_commitments_a: Vec<GE1> = (0..t).map(|_| GE1::generator() * FE1::new_random()).collect();
+        let H = GE1::base_point2();
+        let (vss_b, shares_prime) =
+            VerifiableSS::share_given_generator(t, l, &FE1::new_random(), H);
+        let commitments_b: Vec<GE1>= vss_b.commitments;
+        Self {
+            a_i0,
+            index,
+            qual_parties: vec![],
+            shares,
+            shares_prime,
+            commitments_a: false_commitments_a,
+            commitments_b,
+        }
+    }
+
 
     pub fn phase_1_broadcast_commitment(&self, index: usize) -> KeyGenMessagePhase1 {
         //assert_ne!(self.index,index);

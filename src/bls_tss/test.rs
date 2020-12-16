@@ -15,10 +15,13 @@ mod test {
         let party_0 = Party::phase_1_commit(0, &params);
         let party_1 = Party::phase_1_commit(1, &params);
         let party_2 = Party::phase_1_commit(2, &params);
+        let party_malicious = Party::phase_false_broadcast_commit(3, &params);
 
         party_vec.push(party_0);
         party_vec.push(party_1);
         party_vec.push(party_2);
+        party_vec.push(party_malicious);
+
 
         //////KeyGen: extraction phase/////////////////
 
