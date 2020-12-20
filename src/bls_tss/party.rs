@@ -29,7 +29,7 @@ pub struct Parameters {
 pub struct Party {
     pub index: usize,
     a_i0: FE1,
-    qual_parties: Vec<usize>,
+    pub qual_parties: Vec<usize>,
     shares: Vec<FE1>,
     shares_prime: Vec<FE1>,
     pub commitments_a: Vec<GE1>,
@@ -127,39 +127,6 @@ pub fn phase_1_validate_commitments(received_msg_comm: KeyGenMessagePhase1) -> R
     }
 }
 
-//keygen_generating_phase_validate_and_combine_shares function validates eq(4) and combine the secret key shares from the other parties
-pub fn keygen_generating_phase_validate_and_combine_shares(
-    received_msg_phase_1: &Vec<KeyGenMessagePhase1>,
-) -> (Keys, SharesSkOfParty) {
-    let party_index = received_msg_phase_1[0].index;
-
-    let QUAL: Vec<usize> = received_msg_phase_1
-        .iter()
-        .filter(|&rec_msg| phase_1_validate_commitments(rec_msg.clone()).is_ok())
-        .enumerate()
-        .map(|(index_valid, _)| index_valid)
-        .collect();
-
-    let (valid_sk, valid_vk): (Vec<FE1>, Vec<FE1>) = received_msg_phase_1
-        .iter()
-        .enumerate()
-        .filter(|(index_valid, _)| QUAL.iter().any(|&i| i == *index_valid))
-        .map(|(_, valid_msg)| valid_msg.output_shares())
-        .unzip();
-
-    let sk_ij: Vec<FE1> = received_msg_phase_1
-        .iter()
-        .map(|rec_msg| rec_msg.share)
-        .collect();
-
-    (
-        Keys::combine_key_shares_from_qualified(valid_sk.clone(), valid_vk, party_index, QUAL),
-        SharesSkOfParty {
-            sk_ij: sk_ij.clone(),
-            party_index,
-        },
-    )
-}
 
 pub fn create_list_of_blames(blame_from_i: Vec<Vec<bool>>, t: usize) -> Vec<usize> {
     let trans_vec: Vec<Vec<bool>> = (0..blame_from_i[0].len())
@@ -260,36 +227,75 @@ impl Party {
             index,
         }
     }
-}
 
-pub fn keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
-    party_receiver_index: usize,
-    received_broadcast: Vec<KeyGenBroadcastMessagePhase2>,
-    sk_shares: Vec<SharesSkOfParty>,
-    QUAL: Vec<usize>,
-    params: &Parameters,
-) -> SharedKeys {
-    let valid_broadcasts: Vec<KeyGenBroadcastMessagePhase2> = received_broadcast
-        .iter()
-        .filter(|&bc_from_sender| {
-            //	if bc_from_sender.index in QUAL  - continue this
-            let s_ij = sk_shares[party_receiver_index].sk_ij[bc_from_sender.index];
-            validate_i_commitment_phase_2(party_receiver_index, &bc_from_sender, s_ij).is_ok() //passes eq(4) tests
-				&& QUAL.iter().any(|&index| index == bc_from_sender.index) //passes eq(5) test
-        })
-        .map(|&e| e)
-        .collect();
-    let pk_vec = valid_broadcasts
-        .iter()
-        .map(|bc_from_sender| bc_from_sender.B_i0)
-        .collect();
-    let pk = compute_public_key(pk_vec);
-    let vk_vec = compute_verification_keys(valid_broadcasts, &params);
-    SharedKeys {
-        public_key: pk,
-        verification_keys: vk_vec,
+    //keygen_generating_phase_validate_and_combine_shares function validates eq(4) and combine the secret key shares from the other parties
+    pub fn keygen_generating_phase_validate_and_combine_shares(
+        &self, received_msg_phase_1: &Vec<KeyGenMessagePhase1>
+    ) -> (Keys, SharesSkOfParty) {
+        let party_index = received_msg_phase_1[0].index;
+
+        let QUAL: Vec<usize> = received_msg_phase_1
+            .iter()
+            .filter(|&rec_msg| phase_1_validate_commitments(rec_msg.clone()).is_ok())
+            .enumerate()
+            .map(|(index_valid, _)| index_valid)
+            .collect();
+
+        let (valid_sk, valid_vk): (Vec<FE1>, Vec<FE1>) = received_msg_phase_1
+            .iter()
+            .enumerate()
+            .filter(|(index_valid, _)| QUAL.iter().any(|&i| i == *index_valid))
+            .map(|(_, valid_msg)| valid_msg.output_shares())
+            .unzip();
+
+        let sk_ij: Vec<FE1> = received_msg_phase_1
+            .iter()
+            .map(|rec_msg| rec_msg.share)
+            .collect();
+
+        (
+            Keys::combine_key_shares_from_qualified(valid_sk.clone(), valid_vk, party_index, QUAL),
+            SharesSkOfParty {
+                sk_ij: sk_ij.clone(),
+                party_index,
+            },
+        )
+    }
+
+
+    pub fn keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
+        &self,
+        party_receiver_index: usize,
+        received_broadcast: Vec<KeyGenBroadcastMessagePhase2>,
+        sk_shares: Vec<SharesSkOfParty>,
+        params: &Parameters,
+    ) -> SharedKeys {
+        let party_receiver_index = self.index;
+        let valid_broadcasts: Vec<KeyGenBroadcastMessagePhase2> = received_broadcast
+            .iter()
+            .filter(|&bc_from_sender| {
+                //	if bc_from_sender.index in QUAL  - continue this
+                let s_ij = sk_shares[party_receiver_index].sk_ij[bc_from_sender.index];
+                validate_i_commitment_phase_2(party_receiver_index, &bc_from_sender, s_ij).is_ok() //passes eq(4) tests
+                    && self.QUAL.iter().any(|&index| index == bc_from_sender.index) //passes eq(5) test
+            })
+            .map(|&e| e)
+            .collect();
+        let pk_vec = valid_broadcasts
+            .iter()
+            .map(|bc_from_sender| bc_from_sender.B_i0)
+            .collect();
+        let pk = compute_public_key(pk_vec);
+        let vk_vec = compute_verification_keys(valid_broadcasts, &params);
+        SharedKeys {
+            public_key: pk,
+            verification_keys: vk_vec,
+        }
     }
 }
+
+
+
 
 pub fn validate_i_commitment_phase_2(
     party_receiver_index: usize,
@@ -497,10 +503,12 @@ pub fn valid_signers(
     message: &[u8],
     vk_vec: Vec<GE1>,
     prover_output_vec: Vec<PartialSignatureProverOutput>,
+    QUAL: &Vec<usize>
 ) -> (Vec<usize>, Vec<GE1>) {
     let valid_signers = prover_output_vec
         .iter()
         .filter(|&prover_output| {
+            QUAL.iter().any(|&party_index| party_index == prover_output.party_index) &&
             verify_partial_sig(message, vk_vec[prover_output.party_index], prover_output).is_ok()
         })
         .map(|prover_output| (prover_output.party_index, prover_output.sig_i))
@@ -532,21 +540,25 @@ pub fn combine_sig_shares_to_sig(
             sig_i * lagrange_coeff_i
         })
         .collect();
+    println!("indices :{:?}, shares: {:?}", indices, shares);
     let mut shares_iter = shares.iter();
     let head: &GE1 = shares_iter.next().unwrap();
     let sig: GE1 = shares_iter.fold(*head, |acc, share_i| acc + share_i);
     sig
 }
 
-pub fn combine(
-    params: &Parameters,
-    message: &[u8],
-    vk_vec: Vec<GE1>,
-    provers_output_vec: Vec<PartialSignatureProverOutput>,
-) -> GE1 {
-    assert_eq!(provers_output_vec.len(), params.share_count as usize);
-    let (indices, sig_shares) = valid_signers(message, vk_vec, provers_output_vec);
-    combine_sig_shares_to_sig(params, indices, sig_shares)
+impl Party {
+    pub fn combine(
+        &self,
+        params: &Parameters,
+        message: &[u8],
+        vk_vec: Vec<GE1>,
+        provers_output_vec: Vec<PartialSignatureProverOutput>,
+    ) -> GE1 {
+        assert_eq!(provers_output_vec.len(), params.share_count as usize);
+        let (indices, sig_shares) = valid_signers(message, vk_vec, provers_output_vec, &self.qual_parties);
+        combine_sig_shares_to_sig(params, indices, sig_shares)
+    }
 }
 
 pub fn verify(pk: GE2, message: &[u8], sig: GE1) -> bool {

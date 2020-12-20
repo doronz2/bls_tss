@@ -1,10 +1,11 @@
 #[cfg(test)]
 mod test {
     use crate::bls_tss::party::*;
+    use std::env::temp_dir;
 
     #[test]
     fn integration_test() {
-        let l = 3;
+        let l = 4;
         let t = 2;
         let params = &Parameters {
             threshold: t,
@@ -21,10 +22,10 @@ mod test {
         party_vec.push(party_1);
         party_vec.push(party_2);
         party_vec.push(party_malicious);
-
+        assert_eq!(party_vec.len(), params.share_count);
         //////KeyGen: extraction phase/////////////////
 
-        //return a vector of vectors of received messages for each party
+        //return a vector of vectors of received messages by each party
         let msg_received_vec_phase_1: Vec<Vec<KeyGenMessagePhase1>> = (0..l).
                 map(|index_receiver|{
                     party_vec.
@@ -60,17 +61,21 @@ mod test {
             .enumerate()
             .zip(party_keys_vec_received.iter())
             .map(|((party_index, bc_received_by_party), party_sender_keys)| {
+                let QUAL_receiver =  party_vec[party_index].clone();
                 keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
                     party_index,
                     bc_received_by_party.clone(),
                     sk_shares_vec.clone(),
-                    party_sender_keys.clone().QUAL,
                     &params,
+                    QUAL_receiver.qual_parties
                 )
             })
             .collect();
 
-        let vk_vec = shared_key_vec[0].verification_keys.clone();
+        let test_party_index = 0;
+        let test_party = &party_vec[test_party_index];
+
+        let vk_vec = shared_key_vec[test_party_index].verification_keys.clone();
         let message: &[u8; 4] = &[124, 12, 251, 82];
 
         //create partial signature
@@ -80,7 +85,7 @@ mod test {
             .collect();
 
         //validate the partial signature and combine the shares of the partial signature into a unified signature
-        let combined_sig = combine(params, message, vk_vec, provers_output_vec);
+        let combined_sig = test_party.combine(params, message, vk_vec, provers_output_vec);
         let pk = shared_key_vec[0].public_key;
         assert!(verify(pk, message, combined_sig));
     }
@@ -122,7 +127,8 @@ mod test {
             })
             .collect();
         let vk_vec = key_vec.iter().map(|key| key.get_vk()).collect();
-        let valid_signers_index = valid_signers(message, vk_vec, provers_output_vec);
+        let QUAL = &(0..num_of_provers).collect();
+        let valid_signers_index = valid_signers(message, vk_vec, provers_output_vec, QUAL);
         assert_eq!([0, 2, 4], valid_signers_index.0.as_slice());
     }
 }
