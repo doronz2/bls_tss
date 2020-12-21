@@ -68,13 +68,13 @@ pub struct Keys {
     vk: GE1,
     rk: FE1,
     pub(crate) QUAL: Vec<usize>, //vector of qualified sender, i.e., senders who sent valid commitments that passed eq(4)
-    party_index: usize,
+    pub party_index: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct SharedKeys {
     pub public_key: GE2,
-    pub verification_keys: Vec<GE1>,
+    pub verification_keys: HashMap<usize,GE1>,
 }
 
 #[derive(Clone)]
@@ -85,6 +85,7 @@ pub struct PartialSignatureProverOutput {
 }
 
 use std::fmt;
+use std::collections::HashMap;
 
 impl fmt::Debug for PartialSignatureProverOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -209,7 +210,7 @@ impl Party {
         }
     }
 
-    pub fn phase_false_broadcast_commit(index: usize, params: &Parameters) -> Self {
+    pub fn phase_1_false_commit(index: usize, params: &Parameters) -> Self {
         let t = params.threshold;
         let l = params.share_count;
         let a_i0: FE1 = FE1::new_random();
@@ -253,6 +254,17 @@ impl Party {
         let g2: GE2 = GE2::generator();
         let a_i0: &FE2 = &<FE2 as ECScalar>::from(&self.a_i0.to_big_int()); //converting a_i0 from P to T (i.e., from group G1 to group G2)
         let B_i0 = g2.scalar_mul(&a_i0.get_element());
+        let index = self.index;
+        KeyGenBroadcastMessagePhase2 {
+            A_ik_vec: &self.commitments_a,
+            B_i0,
+            index,
+        }
+    }
+
+    pub fn phase_2_broadcast_false_commitment(&self) -> KeyGenBroadcastMessagePhase2 {
+        let g2: GE2 = GE2::generator();
+        let B_i0 = g2.scalar_mul(&FE2::new_random().get_element());
         let index = self.index;
         KeyGenBroadcastMessagePhase2 {
             A_ik_vec: &self.commitments_a,
@@ -322,6 +334,7 @@ pub fn validate_i_commitment_phase_2(
 }
 
 pub fn compute_public_key(B_i0_vec: Vec<GE2>) -> GE2 {
+    println!("B_i0_vec {:?}", B_i0_vec);
     let mut B_i0_iter = B_i0_vec.iter();
     let head = B_i0_iter.next().unwrap();
     B_i0_iter.fold(*head, |acc, B_i0| acc + B_i0)
@@ -330,7 +343,7 @@ pub fn compute_public_key(B_i0_vec: Vec<GE2>) -> GE2 {
 pub fn compute_verification_keys(
     bc_vec: Vec<KeyGenBroadcastMessagePhase2>,
     params: &Parameters,
-) -> Vec<GE1> {
+) -> HashMap<usize, GE1> {
     let v_vec: Vec<GE1> = (0..params.threshold + 1)
         .map(|i| {
             let mut bc_vec_iter = bc_vec.iter();
@@ -339,17 +352,18 @@ pub fn compute_verification_keys(
         })
         .collect();
 
-    let vk_vec: Vec<GE1> = bc_vec
+    let vk_vec: HashMap<usize,GE1> = bc_vec
         .iter()
         .map(|bc_party| {
             let mut v_vec_iter = v_vec.iter();
             let head = v_vec_iter.next().unwrap();
-            v_vec_iter.enumerate().fold(*head, |acc, (j, &vk_base)| {
+            let vk = v_vec_iter.enumerate().fold(*head, |acc, (j, &vk_base)| {
                 let exp = <FE1 as ECScalar>::from(
                     &BigInt::from((bc_party.index + 1) as i32).pow((j + 1) as u32),
                 );
                 acc + vk_base * exp
-            })
+            });
+            (bc_party.index, vk)
         })
         .collect();
     vk_vec
@@ -495,16 +509,24 @@ pub fn verify_partial_sig(
 
 pub fn valid_signers(
     message: &[u8],
-    vk_vec: Vec<GE1>,
-    prover_output_vec: Vec<PartialSignatureProverOutput>,
+    vk_vec: HashMap<usize,GE1>,
+    prover_output_vec: HashMap<usize, PartialSignatureProverOutput>,
 ) -> (Vec<usize>, Vec<GE1>) {
     let valid_signers = prover_output_vec
         .iter()
         .filter(|&prover_output| {
-            verify_partial_sig(message, vk_vec[prover_output.party_index], prover_output).is_ok()
+            println!("index {}", prover_output.party_index);
+            println!("keys {:?}", vk_vec.keys());
+            if vk_vec.contains_key(&prover_output.party_index) {
+                println!("Heyyyyy ");
+                verify_partial_sig(message, vk_vec[&prover_output.party_index], prover_output[&prover_output.party_index]).is_ok()
+            } else {
+                false
+            }
         })
         .map(|prover_output| (prover_output.party_index, prover_output.sig_i))
         .unzip();
+    println!("indices {:?}", valid_signers);
     valid_signers
 }
 
@@ -541,10 +563,9 @@ pub fn combine_sig_shares_to_sig(
 pub fn combine(
     params: &Parameters,
     message: &[u8],
-    vk_vec: Vec<GE1>,
-    provers_output_vec: Vec<PartialSignatureProverOutput>,
+    vk_vec: HashMap<usize,GE1>,
+    provers_output_vec: HashMap<usize,PartialSignatureProverOutput>,
 ) -> GE1 {
-    assert_eq!(provers_output_vec.len(), params.share_count as usize);
     let (indices, sig_shares) = valid_signers(message, vk_vec, provers_output_vec);
     combine_sig_shares_to_sig(params, indices, sig_shares)
 }
