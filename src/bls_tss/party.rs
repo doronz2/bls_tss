@@ -180,9 +180,6 @@ pub fn create_list_of_blames(blame_from_i: Vec<Vec<bool>>, t: usize) -> Vec<usiz
         .filter(|&(_index, i)| i > &t)
         .map(|(_index, _)| _index)
         .collect();
-    println!("transformed vec {:?}", trans_vec);
-    println!("count_false {:?}", count_false);
-    println!("greater_than_t {:?}", blame_greater_than_t);
     blame_greater_than_t
 }
 
