@@ -74,7 +74,7 @@ pub struct Keys {
 #[derive(Clone, Debug, Serialize)]
 pub struct SharedKeys {
     pub public_key: GE2,
-    pub verification_keys: HashMap<usize,GE1>,
+    pub verification_keys: HashMap<usize, GE1>,
 }
 
 #[derive(Clone)]
@@ -84,8 +84,8 @@ pub struct PartialSignatureProverOutput {
     proof: sigma_ec_ddh::ECDDHProof<GE1>,
 }
 
-use std::fmt;
 use std::collections::HashMap;
+use std::fmt;
 
 impl fmt::Debug for PartialSignatureProverOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -348,7 +348,7 @@ pub fn compute_verification_keys(
         })
         .collect();
 
-    let vk_vec: HashMap<usize,GE1> = bc_vec
+    let vk_vec: HashMap<usize, GE1> = bc_vec
         .iter()
         .map(|bc_party| {
             let mut v_vec_iter = v_vec.iter();
@@ -505,7 +505,7 @@ pub fn verify_partial_sig(
 
 pub fn valid_signers(
     message: &[u8],
-    vk_vec: HashMap<usize,GE1>,
+    vk_vec: HashMap<usize, GE1>,
     prover_output_vec: HashMap<usize, PartialSignatureProverOutput>,
 ) -> (Vec<usize>, Vec<GE1>) {
     let valid_signers = prover_output_vec
@@ -515,7 +515,7 @@ pub fn valid_signers(
             let proof = &prover_output_vec[&party_index];
             if vk_vec.contains_key(&party_index) {
                 verify_partial_sig(message, vk_vec[&party_index], &proof).is_ok()
-        } else {
+            } else {
                 false
             }
         })
@@ -557,8 +557,8 @@ pub fn combine_sig_shares_to_sig(
 pub fn combine(
     params: &Parameters,
     message: &[u8],
-    vk_vec: HashMap<usize,GE1>,
-    provers_output_vec: HashMap<usize,PartialSignatureProverOutput>,
+    vk_vec: HashMap<usize, GE1>,
+    provers_output_vec: HashMap<usize, PartialSignatureProverOutput>,
 ) -> GE1 {
     let (indices, sig_shares) = valid_signers(message, vk_vec, provers_output_vec);
     combine_sig_shares_to_sig(params, indices, sig_shares)

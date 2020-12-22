@@ -27,20 +27,18 @@ mod test {
         party_vec.push(party_4);
         party_vec.push(party_malicious);
 
-        assert_eq!(party_vec.len(),l);
+        assert_eq!(party_vec.len(), l);
         //////KeyGen: extraction phase/////////////////
 
         //return a vector of vectors of received messages for each party
-        let msg_received_vec_phase_1: Vec<Vec<KeyGenMessagePhase1>> = (0..l).
-                map(|index_receiver|{
-                    party_vec.
-                        iter().
-                        map(| party_sender| {
-                            party_sender.phase_1_broadcast_commitment(index_receiver)
-                        }).
-                        collect::<Vec<KeyGenMessagePhase1>>()
-                }).
-                collect::<Vec<Vec<KeyGenMessagePhase1>>>();
+        let msg_received_vec_phase_1: Vec<Vec<KeyGenMessagePhase1>> = (0..l)
+            .map(|index_receiver| {
+                party_vec
+                    .iter()
+                    .map(|party_sender| party_sender.phase_1_broadcast_commitment(index_receiver))
+                    .collect::<Vec<KeyGenMessagePhase1>>()
+            })
+            .collect::<Vec<Vec<KeyGenMessagePhase1>>>();
 
         let (party_keys_vec_received, sk_shares_vec): (Vec<Keys>, Vec<SharesSkOfParty>) =
             msg_received_vec_phase_1
@@ -53,22 +51,19 @@ mod test {
         //////KeyGen: extraction phase/////////////////
         let malicious_broadcaster_phase_2 = [10];
 
-
-
-        let extraction_phase_broadcast_vec: Vec<KeyGenBroadcastMessagePhase2> =
-                party_vec
+        let extraction_phase_broadcast_vec: Vec<KeyGenBroadcastMessagePhase2> = party_vec
+            .iter()
+            .map(|party_sender| {
+                if malicious_broadcaster_phase_2
                     .iter()
-                    .map(|party_sender|
-                        {
-                            if malicious_broadcaster_phase_2.iter().any(|&mal_broadcaster| mal_broadcaster == party_sender.index){
-                                party_sender.phase_2_broadcast_false_commitment()
-                            }
-                            else {
-                                party_sender.phase_2_broadcast_commitment()
-                            }
-                        })
-                    .collect();
-
+                    .any(|&mal_broadcaster| mal_broadcaster == party_sender.index)
+                {
+                    party_sender.phase_2_broadcast_false_commitment()
+                } else {
+                    party_sender.phase_2_broadcast_commitment()
+                }
+            })
+            .collect();
 
         let shared_key_vec: Vec<SharedKeys> = (0..params.share_count)
             .zip(party_keys_vec_received.iter())
@@ -87,23 +82,27 @@ mod test {
         let honest_party = 0;
 
         //define a set of parties who send non valid proofs
-        let non_valid_provers = [2,4];
+        let non_valid_provers = [2, 4];
 
         //create partial signature
-        let provers_output_vec: HashMap<usize, PartialSignatureProverOutput> = party_keys_vec_received
-            .iter()
-            .enumerate()
-            .map(|(prover_index, party_keys)| {
-                if non_valid_provers
-                    .iter()
-                    .any(|&non_valid_prover_index| non_valid_prover_index == prover_index)
-                {
-                    (party_keys.party_index, party_keys.partial_eval_non_valid(message))
-                } else {
-                    (party_keys.party_index, party_keys.partial_eval(message))
-                }
-            })
-            .collect();
+        let provers_output_vec: HashMap<usize, PartialSignatureProverOutput> =
+            party_keys_vec_received
+                .iter()
+                .enumerate()
+                .map(|(prover_index, party_keys)| {
+                    if non_valid_provers
+                        .iter()
+                        .any(|&non_valid_prover_index| non_valid_prover_index == prover_index)
+                    {
+                        (
+                            party_keys.party_index,
+                            party_keys.partial_eval_non_valid(message),
+                        )
+                    } else {
+                        (party_keys.party_index, party_keys.partial_eval(message))
+                    }
+                })
+                .collect();
 
         //validate the partial signature and combine the shares of the partial signature into a unified signature
         let vk_vec = shared_key_vec[honest_party].verification_keys.clone();
@@ -112,6 +111,4 @@ mod test {
         let pk = shared_key_vec[honest_party].public_key;
         assert!(verify(pk, message, combined_sig));
     }
-
-
 }
