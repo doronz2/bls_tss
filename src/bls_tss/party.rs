@@ -334,7 +334,6 @@ pub fn validate_i_commitment_phase_2(
 }
 
 pub fn compute_public_key(B_i0_vec: Vec<GE2>) -> GE2 {
-   // println!("B_i0_vec {:?}", B_i0_vec);
     let mut B_i0_iter = B_i0_vec.iter();
     let head = B_i0_iter.next().unwrap();
     B_i0_iter.fold(*head, |acc, B_i0| acc + B_i0)
@@ -517,20 +516,14 @@ pub fn valid_signers(
         .filter(|&prover_output| {
             let party_index = prover_output.0;
             let proof = &prover_output_vec[&party_index];
-            println!("index {}", party_index);
-            println!("keys {:?}", vk_vec.keys());
             if vk_vec.contains_key(&party_index) {
-                println!("Heyyyyy");
-                println!("Does it verify: {}",verify_partial_sig(message, vk_vec[&party_index], &proof).is_ok());
                 verify_partial_sig(message, vk_vec[&party_index], &proof).is_ok()
-
-            } else {
+        } else {
                 false
             }
         })
         .map(|prover_output| (prover_output.0, prover_output.1.sig_i))
         .unzip();
-    println!("indices {:?}", valid_signers);
     valid_signers
 }
 

@@ -51,7 +51,7 @@ mod test {
                 .unzip();
 
         //////KeyGen: extraction phase/////////////////
-        let malicious_broadcaster_phase_2 = [2];
+        let malicious_broadcaster_phase_2 = [10];
 
 
 
@@ -62,18 +62,11 @@ mod test {
                     .iter()
                     .map(|party_sender|
                         {
-                            println!("party sender index  - before: {}", party_sender.index);
-
                             if malicious_broadcaster_phase_2.iter().any(|&mal_broadcaster| mal_broadcaster == party_sender.index){
-                                println!("party sender index: {}", party_sender.index);
-
-                                println!("hellooooo");
                                 party_sender.phase_2_broadcast_false_commitment()
                             }
                             else {
-                                println!("I also enter here!");
                                 party_sender.phase_2_broadcast_commitment()
-
                             }
                         })
                     .collect()
@@ -86,7 +79,6 @@ mod test {
             .enumerate()
             .zip(party_keys_vec_received.iter())
             .map(|((party_index, bc_received_by_party), party_sender_keys)| {
-                println!("Party index bc: {}, Party index sender shares: {}", party_index, party_sender_keys.party_index);
                 keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
                     party_index,
                     bc_received_by_party.clone(),
@@ -99,7 +91,8 @@ mod test {
 
         let message: &[u8; 4] = &[124, 12, 251, 82];
         let honest_party = 0;
-        let non_valid_provers = [4];
+//define malicious parties
+        let non_valid_provers = [2,4];
 
         //create partial signature
         let provers_output_vec: HashMap<usize, PartialSignatureProverOutput> = party_keys_vec_received
@@ -119,7 +112,6 @@ mod test {
 
         //validate the partial signature and combine the shares of the partial signature into a unified signature
         let vk_vec = shared_key_vec[honest_party].verification_keys.clone();
-       // let mut vk_vec: HashMap<usize, SharedKeys> = HashMap::new();
 
         let combined_sig = combine(params, message, vk_vec, provers_output_vec);
         let pk = shared_key_vec[honest_party].public_key;
