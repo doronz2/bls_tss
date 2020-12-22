@@ -73,10 +73,24 @@ mod test {
         let vk_vec = shared_key_vec[0].verification_keys.clone();
         let message: &[u8; 4] = &[124, 12, 251, 82];
 
+        let non_valid_provers = [1];
+
         //create partial signature
         let provers_output_vec: Vec<PartialSignatureProverOutput> = party_keys_vec_received
             .iter()
-            .map(|party_keys| party_keys.partial_eval(message))
+            .enumerate()
+            .map(|(prover_index, party_keys)| {
+                if non_valid_provers
+                    .iter()
+                    .any(|&non_valid_prover_index| non_valid_prover_index == prover_index)
+                {
+                    //send non valid proofs
+                     party_keys.partial_eval_non_valid(message)
+                } else {
+                    //send valid proofs
+                    party_keys.partial_eval(message)
+                }
+            })
             .collect();
 
         //validate the partial signature and combine the shares of the partial signature into a unified signature
