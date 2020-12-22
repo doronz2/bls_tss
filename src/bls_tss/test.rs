@@ -55,9 +55,7 @@ mod test {
 
 
 
-        let extraction_phase_broadcast_vec: Vec<Vec<KeyGenBroadcastMessagePhase2>> = (0..params
-            .share_count)
-            .map(|_| {
+        let extraction_phase_broadcast_vec: Vec<KeyGenBroadcastMessagePhase2> =
                 party_vec
                     .iter()
                     .map(|party_sender|
@@ -69,19 +67,15 @@ mod test {
                                 party_sender.phase_2_broadcast_commitment()
                             }
                         })
-                    .collect()
-            })
-            .collect();
+                    .collect();
 
 
-        let shared_key_vec: Vec<SharedKeys> = extraction_phase_broadcast_vec
-            .iter()
-            .enumerate()
+        let shared_key_vec: Vec<SharedKeys> = (0..params.share_count)
             .zip(party_keys_vec_received.iter())
-            .map(|((party_index, bc_received_by_party), party_sender_keys)| {
+            .map(|(party_index, party_sender_keys)| {
                 keygen_extracting_phase_validate_and_compute_PK_and_verification_keys(
                     party_index,
-                    bc_received_by_party.clone(),
+                    extraction_phase_broadcast_vec.clone(),
                     sk_shares_vec.clone(),
                     party_sender_keys.clone().QUAL,
                     &params,
@@ -91,7 +85,8 @@ mod test {
 
         let message: &[u8; 4] = &[124, 12, 251, 82];
         let honest_party = 0;
-//define malicious parties
+
+        //define a set of parties who send non valid proofs
         let non_valid_provers = [2,4];
 
         //create partial signature
@@ -119,45 +114,4 @@ mod test {
     }
 
 
-
-    #[test]
-    fn test_partial_sig() {
-        let message: &[u8; 4] = &[124, 12, 251, 82];
-        let party_keys = Keys::generate_random_key(0);
-        let prover_output = &party_keys.partial_eval(message);
-        let valid = verify_partial_sig(message, party_keys.get_vk(), prover_output).is_ok();
-        assert!(valid);
-    }
-
-/*
-    #[test]
-    fn test_provers_sig() {
-        let message: &[u8; 4] = &[124, 12, 251, 82];
-        let num_of_provers = 5;
-        let mut key_vec: Vec<Keys> = Vec::new();
-        for i in 0..num_of_provers {
-            key_vec.push(Keys::generate_random_key(i));
-        }
-
-        let non_valid_provers = [1, 3];
-        let provers_output_vec: Vec<PartialSignatureProverOutput> = key_vec
-            .iter()
-            .enumerate()
-            .map(|(prover_index, party_keys)| {
-                if non_valid_provers
-                    .iter()
-                    .any(|&non_valid_prover_index| non_valid_prover_index == prover_index)
-                {
-                    party_keys.partial_eval_non_valid(message)
-                } else {
-                    party_keys.partial_eval(message)
-                }
-            })
-            .collect();
-        let vk_vec = key_vec.iter().map(|key| key.get_vk()).collect();
-        let valid_signers_index = valid_signers(message, vk_vec, provers_output_vec);
-        assert_eq!([0, 2, 4], valid_signers_index.0.as_slice());
-    }
-
- */
 }
